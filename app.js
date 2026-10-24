@@ -588,9 +588,298 @@ function sessionCard(s){
 }
 
 /* ====================================================================
- * 발전 추이 (다음 단계)
+ * 발전 추이 — 그래프 + 공유 카드
  * ==================================================================== */
+var TREND = null;         // { running:[], weights:[], people:[] }
+var TREND_CHARTS = [];    // Chart 인스턴스 (다시 그릴 때 정리)
+var TREND_EQUIP = '';     // 무게 추이에서 고른 기구/동작 키
+
 function renderTrend(){
-  $('trend').innerHTML = '<div class="card"><h2>발전 추이</h2>'
-    + '<p class="desc">기구별 무게 추이, 런닝 거리·칼로리 그래프를 다음 단계에서 만들 거예요.</p></div>';
+  $('trend').innerHTML = '<div class="card"><p class="muted">불러오는 중…</p></div>';
+  call('trendData').then(function(d){
+    TREND = d || { running:[], weights:[], people:[] };
+    drawTrend();
+  }).catch(function(e){ $('trend').innerHTML = '<div class="card"><p class="muted">오류: ' + esc(e&&e.message||e) + '</p></div>'; });
+}
+
+/* 날짜 도우미 */
+function weekAgo(n){ var d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+function ymd(s){ return String(s||'').slice(0,10); }
+
+function drawTrend(){
+  // 집계
+  var stat = computeStat(TREND, 'all');
+  var equipKeys = equipKeyList(TREND.weights);
+  if(!TREND_EQUIP && equipKeys.length) TREND_EQUIP = equipKeys[0];
+
+  $('trend').innerHTML =
+    '<div class="card">'
+    +   '<div class="row" style="justify-content:space-between;align-items:center">'
+    +     '<h2 style="margin:0">발전 추이</h2>'
+    +     '<button class="pillbtn" onclick="openShare()">📤 공유</button>'
+    +   '</div>'
+    +   '<div class="statline">'
+    +     statBox('운동', stat.sessions + '회') + statBox('런닝', stat.km + 'km') + statBox('총 볼륨', fmt(stat.volume) + 'kg')
+    +   '</div>'
+    + '</div>'
+
+    // 기구별 무게 추이
+    + '<div class="card">'
+    +   '<h2>🏋 무게 추이</h2>'
+    +   (equipKeys.length
+        ? '<select class="bigsel" onchange="TREND_EQUIP=this.value;drawTrend()">'
+            + equipKeys.map(function(k){ return '<option value="' + esc(k) + '"' + (k===TREND_EQUIP?' selected':'') + '>' + esc(k) + '</option>'; }).join('')
+          + '</select><div class="chartwrap"><canvas id="cWeight"></canvas></div>'
+        : '<p class="muted">웨이트 기록이 쌓이면 여기 무게 변화가 그려져요.</p>')
+    + '</div>'
+
+    // 런닝 추이
+    + '<div class="card">'
+    +   '<h2>🏃 런닝 추이</h2>'
+    +   (TREND.running.length ? '<div class="chartwrap"><canvas id="cRun"></canvas></div>'
+                             : '<p class="muted">런닝 기록이 쌓이면 거리·칼로리 변화가 그려져요.</p>')
+    + '</div>'
+
+    // 주간 횟수 + 부부 비교
+    + '<div class="card">'
+    +   '<h2>📅 최근 주간 운동 횟수</h2>'
+    +   '<div class="chartwrap"><canvas id="cWeek"></canvas></div>'
+    + '</div>';
+
+  // 차트 그리기 (Chart.js 로드됐을 때만)
+  if(!window.Chart){ return; }
+  TREND_CHARTS.forEach(function(c){ try{c.destroy();}catch(e){} }); TREND_CHARTS = [];
+  if(equipKeys.length) drawWeightChart();
+  if(TREND.running.length) drawRunChart();
+  drawWeekChart();
+}
+
+function statBox(label, val){
+  return '<div class="statbox"><div class="statval">' + esc(val) + '</div><div class="statlbl">' + esc(label) + '</div></div>';
+}
+function fmt(n){ n=Number(n)||0; return n>=1000 ? (Math.round(n/100)/10)+'k' : String(Math.round(n)); }
+
+/* 기구/동작 키 목록 (무게 데이터 있는 것만) */
+function equipKeyList(weights){
+  var keys = {};
+  (weights||[]).forEach(function(w){ if(w.weight!=='' && w.weight!=null){ var k=w.equip + (w.move?' · '+w.move:''); keys[k]=1; } });
+  return Object.keys(keys);
+}
+
+/* 통계 집계 · range: 'all' | 'week' | 'month' */
+function computeStat(d, range){
+  var from = range==='week' ? weekAgo(7) : range==='month' ? weekAgo(30) : '0000';
+  var runs = (d.running||[]).filter(function(r){ return ymd(r.date) >= from; });
+  var wts = (d.weights||[]).filter(function(w){ return ymd(w.date) >= from; });
+  var sess = {}; runs.concat(wts).forEach(function(x){ sess[x.date+'|'+x.who]=1; });
+  var km = 0; runs.forEach(function(r){ km += Number(r.km)||0; });
+  var kcal = 0; runs.forEach(function(r){ kcal += Number(r.kcal)||0; });
+  var volume = 0, best = {};
+  wts.forEach(function(w){
+    var vol = (Number(w.weight)||0)*(Number(w.reps)||0); volume += vol;
+    var k = w.equip + (w.move?' · '+w.move:'');
+    if(!best[k] || (Number(w.weight)||0) > best[k]) best[k] = Number(w.weight)||0;
+  });
+  // 최고기록 상위 2개
+  var bestArr = Object.keys(best).map(function(k){ return {k:k, v:best[k]}; }).sort(function(a,b){ return b.v-a.v; }).slice(0,2);
+  // 부부별 횟수
+  var byWho = {}; Object.keys(sess).forEach(function(key){ var who=key.split('|')[1]; byWho[who]=(byWho[who]||0)+1; });
+  return { sessions:Object.keys(sess).length, km:Math.round(km*10)/10, kcal:Math.round(kcal), volume:Math.round(volume), best:bestArr, byWho:byWho };
+}
+
+var CHART_FONT = { family:'Gothic A1', size:12 };
+function chartBase(){
+  return { responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ labels:{ color:'#9aa3b2', font:CHART_FONT } } },
+    scales:{ x:{ ticks:{ color:'#9aa3b2', font:CHART_FONT }, grid:{ color:'#2a2f3a' } },
+             y:{ ticks:{ color:'#9aa3b2', font:CHART_FONT }, grid:{ color:'#2a2f3a' } } } };
+}
+
+function drawWeightChart(){
+  // 고른 기구/동작의 날짜별 최고무게
+  var byDate = {};
+  TREND.weights.forEach(function(w){
+    var k = w.equip + (w.move?' · '+w.move:'');
+    if(k!==TREND_EQUIP || w.weight===''||w.weight==null) return;
+    var dt = ymd(w.date), v = Number(w.weight)||0;
+    if(!byDate[dt] || v>byDate[dt]) byDate[dt]=v;
+  });
+  var dates = Object.keys(byDate).sort();
+  var ctx = $('cWeight'); if(!ctx) return;
+  TREND_CHARTS.push(new Chart(ctx, { type:'line',
+    data:{ labels:dates, datasets:[{ label:TREND_EQUIP+' 최고무게(kg)', data:dates.map(function(d){return byDate[d];}),
+      borderColor:'#c6f432', backgroundColor:'rgba(198,244,50,.15)', tension:.3, fill:true, pointRadius:4, pointBackgroundColor:'#c6f432' }] },
+    options:chartBase() }));
+}
+function drawRunChart(){
+  var byDate = {};
+  TREND.running.forEach(function(r){ var dt=ymd(r.date); byDate[dt]=byDate[dt]||{km:0,kcal:0}; byDate[dt].km+=Number(r.km)||0; byDate[dt].kcal+=Number(r.kcal)||0; });
+  var dates = Object.keys(byDate).sort();
+  var ctx = $('cRun'); if(!ctx) return;
+  TREND_CHARTS.push(new Chart(ctx, { type:'line',
+    data:{ labels:dates, datasets:[
+      { label:'거리(km)', data:dates.map(function(d){return Math.round(byDate[d].km*10)/10;}), borderColor:'#49e39b', backgroundColor:'rgba(73,227,155,.12)', tension:.3, fill:true, yAxisID:'y' },
+      { label:'칼로리(kcal)', data:dates.map(function(d){return Math.round(byDate[d].kcal);}), borderColor:'#ff5a5f', tension:.3, yAxisID:'y1' }
+    ]},
+    options:Object.assign(chartBase(), { scales:{ x:{ ticks:{color:'#9aa3b2',font:CHART_FONT}, grid:{color:'#2a2f3a'} },
+      y:{ position:'left', ticks:{color:'#49e39b',font:CHART_FONT}, grid:{color:'#2a2f3a'} },
+      y1:{ position:'right', ticks:{color:'#ff5a5f',font:CHART_FONT}, grid:{drawOnChartArea:false} } } }) }));
+}
+function drawWeekChart(){
+  // 최근 8주, 사람별 운동 횟수(세션=날짜+사람)
+  var people = TREND.people||[];
+  var weeks = []; for(var i=7;i>=0;i--){ weeks.push(weekStart(i)); }
+  var sess = {}; (TREND.running||[]).concat(TREND.weights||[]).forEach(function(x){ sess[x.date+'|'+x.who]=x; });
+  var counts = {}; people.forEach(function(p){ counts[p]=weeks.map(function(){return 0;}); });
+  Object.keys(sess).forEach(function(key){
+    var parts=key.split('|'), dt=parts[0], who=parts[1];
+    var wi = weeks.indexOf(weekStartOf(dt)); if(wi>=0 && counts[who]) counts[who][wi]++;
+  });
+  var colors = ['#c6f432','#49e39b'];
+  var ctx = $('cWeek'); if(!ctx) return;
+  TREND_CHARTS.push(new Chart(ctx, { type:'bar',
+    data:{ labels:weeks.map(function(w){return w.slice(5);}), datasets:people.map(function(p,i){
+      return { label:p, data:counts[p], backgroundColor:colors[i%colors.length] }; }) },
+    options:chartBase() }));
+}
+function weekStart(nAgo){ var d=new Date(); d.setDate(d.getDate()-nAgo*7); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.toISOString().slice(0,10); }
+function weekStartOf(dateStr){ var d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.toISOString().slice(0,10); }
+
+/* ====================================================================
+ * 공유 카드 (나이키 런닝 스타일 · 9:16 · 사진 위 통계)
+ * ==================================================================== */
+var SHARE_RANGE = 'week';   // week | month | all
+var SHARE_PHOTO = null;     // 배경 사진 base64 (선택)
+function openShare(){
+  SHARE_RANGE='week'; SHARE_PHOTO=null;
+  var sh = $('shareModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='shareModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeShare()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>📤 운동 카드 공유</b><button class="xbtn" onclick="closeShare()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     '<div class="seg" id="shareRange">'
+    +       rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('all','전체')
+    +     '</div>'
+    +     '<div class="picker"><div class="picklabel">배경 사진 (선택 안 하면 기본 배경)</div>'
+    +       '<button class="photobtn" onclick="openSharePhoto()">📷 배경 사진 넣기</button>'
+    +       '<input type="file" accept="image/*" id="file_share" class="hiddenfile">'
+    +       '<input type="file" accept="image/*" capture="environment" id="cam_share" class="hiddenfile">'
+    +     '</div>'
+    +     '<div class="sharepreview"><canvas id="shareCanvas"></canvas></div>'
+    +     '<button class="button accent" style="width:100%" onclick="downloadShare()">이미지로 저장</button>'
+    +     '<p class="muted" style="text-align:center;margin-top:8px">저장한 이미지를 인스타 스토리에 올려보세요 💪</p>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on');
+  wireSharePhoto();
+  renderShareCard();
+}
+function rangeBtn(v,label){ return '<button class="button ' + (SHARE_RANGE===v?'accent':'ghost') + '" style="flex:1" onclick="SHARE_RANGE=\'' + v + '\';refreshShareSeg();renderShareCard()">' + esc(label) + '</button>'; }
+function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('all','전체'); }
+function closeShare(){ var sh=$('shareModal'); if(sh) sh.classList.remove('on'); SHARE_PHOTO=null; }
+function openSharePhoto(){ openPhotoSheetFor('share'); }
+function wireSharePhoto(){
+  ['file_share','cam_share'].forEach(function(id){
+    var input=$(id); if(!input) return;
+    input.onchange=function(){ var f=input.files&&input.files[0]; if(!f) return;
+      var rd=new FileReader(); rd.onload=function(){ SHARE_PHOTO={data:rd.result}; renderShareCard(); }; rd.readAsDataURL(f); };
+  });
+}
+/* 공유 모달용 사진 시트 (앨범/카메라) */
+function openPhotoSheetFor(key){
+  var sh=$('photoSheet');
+  if(!sh){ sh=document.createElement('div'); sh.id='photoSheet'; sh.className='sheetwrap'; document.body.appendChild(sh); }
+  sh.innerHTML='<div class="sheetbg" onclick="closePhotoSheet()"></div>'
+    + '<div class="sheetbox"><div class="sheettitle">배경 사진</div>'
+    + '<button class="sheetitem" onclick="pickFile(\'' + key + '\',true)">📸 카메라로 촬영</button>'
+    + '<button class="sheetitem" onclick="pickFile(\'' + key + '\',false)">🏞️ 앨범에서 선택</button>'
+    + '<button class="sheetitem cancel" onclick="closePhotoSheet()">취소</button></div>';
+  sh.classList.add('on');
+}
+
+/* 9:16 카드를 캔버스에 그림 (미리보기 = 저장과 동일) */
+function renderShareCard(){
+  var cv = $('shareCanvas'); if(!cv) return;
+  var W=1080, H=1920; cv.width=W; cv.height=H;
+  var ctx = cv.getContext('2d');
+  var s = computeStat(TREND, SHARE_RANGE);
+  var title = SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '전체 기록';
+
+  function paint(bgImg){
+    // 배경
+    if(bgImg){
+      // cover 맞춤
+      var ir=bgImg.width/bgImg.height, cr=W/H, sw,sh2,sx,sy;
+      if(ir>cr){ sh2=bgImg.height; sw=sh2*cr; sx=(bgImg.width-sw)/2; sy=0; }
+      else{ sw=bgImg.width; sh2=sw/cr; sx=0; sy=(bgImg.height-sh2)/2; }
+      ctx.drawImage(bgImg, sx,sy,sw,sh2, 0,0,W,H);
+      ctx.fillStyle='rgba(15,17,21,.55)'; ctx.fillRect(0,0,W,H);           // 어둡게 덮어 글씨 잘 보이게
+    } else {
+      var g=ctx.createLinearGradient(0,0,W,H); g.addColorStop(0,'#13161d'); g.addColorStop(1,'#0c0e12');
+      ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+      // 라임 글로우
+      var rg=ctx.createRadialGradient(W*0.8,H*0.12,0,W*0.8,H*0.12,W*0.7);
+      rg.addColorStop(0,'rgba(198,244,50,.18)'); rg.addColorStop(1,'rgba(198,244,50,0)');
+      ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
+    }
+    ctx.textAlign='left';
+    var pad=90;
+    // 상단 브랜드
+    ctx.fillStyle='#c6f432'; ctx.font='800 40px "Gothic A1",sans-serif';
+    ctx.fillText('● 운동 레포트', pad, 150);
+    ctx.fillStyle='#eef1f5'; ctx.font='900 92px "Gothic A1",sans-serif';
+    ctx.fillText(title + ' 💪', pad, 280);
+    ctx.fillStyle='#9aa3b2'; ctx.font='500 38px "Gothic A1",sans-serif';
+    ctx.fillText(ME ? ME.name + '님의 운동 요약' : '운동 요약', pad, 345);
+
+    // 큰 숫자 3개
+    var y=560;
+    bigStat(ctx, pad, y, s.sessions, '회', '운동 횟수');
+    bigStat(ctx, pad, y+260, s.km, 'km', '런닝 거리');
+    bigStat(ctx, pad, y+520, fmt(s.volume), 'kg', '총 볼륨 (무게×횟수)');
+
+    // 최고기록
+    var by=560+780;
+    if(s.best && s.best.length){
+      ctx.fillStyle='#c6f432'; ctx.font='800 44px "Gothic A1",sans-serif';
+      ctx.fillText('🔥 최고 기록', pad, by);
+      ctx.fillStyle='#eef1f5'; ctx.font='700 46px "Gothic A1",sans-serif';
+      s.best.forEach(function(b,i){ ctx.fillText(b.k + '  ' + b.v + 'kg', pad, by+70+i*68); });
+    }
+
+    // 하단 부부 비교
+    var wy=H-230;
+    var people=Object.keys(s.byWho);
+    if(people.length){
+      ctx.fillStyle='#9aa3b2'; ctx.font='600 34px "Gothic A1",sans-serif';
+      var txt=people.map(function(p){ return p+' '+s.byWho[p]+'회'; }).join('   ·   ');
+      ctx.fillText('👫 ' + txt, pad, wy);
+    }
+    // 날짜
+    ctx.fillStyle='#5b6472'; ctx.font='500 30px "Gothic A1",sans-serif';
+    ctx.fillText(new Date().toISOString().slice(0,10), pad, H-110);
+  }
+
+  if(SHARE_PHOTO && SHARE_PHOTO.data){
+    var im=new Image(); im.onload=function(){ paint(im); }; im.onerror=function(){ paint(null); }; im.src=SHARE_PHOTO.data;
+  } else { paint(null); }
+}
+function bigStat(ctx, x, y, val, unit, label){
+  ctx.fillStyle='#eef1f5'; ctx.font='900 150px "Gothic A1",sans-serif';
+  ctx.fillText(String(val), x, y);
+  var w = ctx.measureText(String(val)).width;
+  ctx.fillStyle='#c6f432'; ctx.font='800 60px "Gothic A1",sans-serif';
+  ctx.fillText(unit, x+w+16, y);
+  ctx.fillStyle='#9aa3b2'; ctx.font='600 40px "Gothic A1",sans-serif';
+  ctx.fillText(label, x+4, y+58);
+}
+function downloadShare(){
+  var cv=$('shareCanvas'); if(!cv) return;
+  var a=document.createElement('a');
+  a.href=cv.toDataURL('image/jpeg',0.92);
+  a.download='운동카드_' + new Date().toISOString().slice(0,10) + '.jpg';
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('이미지를 저장했어요. 스토리에 올려보세요 💪');
 }

@@ -209,3 +209,15 @@ select{-webkit-appearance:none;appearance:none;
 
 /* 일지 필터 세그먼트 */
 .seg{display:flex;gap:8px;margin-bottom:12px}
+
+/* ===== 발전 추이 ===== */
+.statline{display:flex;gap:10px;margin-top:14px}
+.statbox{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:14px 8px;text-align:center}
+.statval{font-size:22px;font-weight:900;color:var(--main);line-height:1.1}
+.statlbl{font-size:12px;color:var(--sub);margin-top:4px;font-weight:600}
+.chartwrap{position:relative;height:240px;margin-top:12px}
+.bigsel{margin-bottom:0}
+
+/* 공유 카드 미리보기 (9:16) */
+.sharepreview{width:100%;max-width:260px;margin:14px auto;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#000}
+.sharepreview canvas{width:100%;height:auto;display:block}
