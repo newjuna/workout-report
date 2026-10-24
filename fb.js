@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF1.0';
+  const VERSION = 'WF1.2';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체', '복근', '기타'];
 
@@ -220,6 +220,14 @@
     });
   }
 
+  /* ---------- 한 사람의 오운완 전체 목록 (날짜별 보기용) ---------- */
+  async function finishHistory(who) {
+    requireUser();
+    const ss = await col('sessions').orderBy('date', 'desc').get().then(docsOf);
+    return ss.filter((s) => s.who === who && s.finishThumb)
+      .map((s) => ({ who: s.who, date: s.date, workout: s.workout || '', thumb: s.finishThumb, url: s.finishPhoto || s.finishThumb }));
+  }
+
   /* ---------- 발전 추이용 원자료 ---------- */
   async function trendData() {
     requireUser();
@@ -231,7 +239,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish };
+  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish, finishHistory };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));

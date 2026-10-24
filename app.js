@@ -84,7 +84,7 @@ function toggleMenu(force){
 }
 
 /* ---------- 탭 전환 ---------- */
-var TAB_TITLE = { home:'오늘 운동', log:'기록하기', list:'운동 일지', equip:'기구 목록', trend:'발전 추이' };
+var TAB_TITLE = { home:'오늘 운동', log:'기록하기', list:'운동 일지', equip:'기구 목록', trend:'성과 분석' };
 function switchTab(tab){
   CUR_TAB = tab;
   ['home','log','list','equip','trend'].forEach(function(t){ $(t).classList.toggle('hidden', t !== tab); });
@@ -127,7 +127,7 @@ function renderHome(){
     + '<div class="card">'
     +   '<div class="row" style="gap:10px">'
     +     '<button class="button accent" style="flex:2" onclick="switchTab(\'log\')">＋ 오늘 운동 시작</button>'
-    +     '<button class="button ghost" style="flex:1" onclick="openShare()">📤 공유</button>'
+    +     '<button class="button ghost" style="flex:1" onclick="openVersus()">⚔️ 대결</button>'
     +   '</div>'
     + '</div>';
   // 피드 로드
@@ -138,31 +138,74 @@ function renderHome(){
 }
 
 var FEED = [];
-/* 공백 일수 → 재밌는 멘트 (부부가 서로 보는 재미) */
+/* 공백 일수별 놀리는 멘트 모음 — 3일부터는 랜덤으로 막 돌림 😈
+ * 스토리에 캡처해 올려서 상대 놀리는 용도! */
+var OFF_MSGS = {
+  none: [            // 기록 아예 없음
+    { emo:'💪', line:'첫 오운완을 기다리고 있어요!' },
+    { emo:'🌱', line:'아직 시작 전… 오늘이 그날인가?' }
+  ],
+  d1: [              // 1일 (어제 쉼) — 가볍게
+    { emo:'🤫', line:'어제는 휴일이였나봐요? 운동 쉿!' },
+    { emo:'😴', line:'하루 쉬는 건 전략이죠… 아마도?' },
+    { emo:'🛋️', line:'소파랑 사랑에 빠진 거 아니죠?' }
+  ],
+  d2: [              // 2일
+    { emo:'🐷', line:'슬슬 돼지가 되고 있나봐요?' },
+    { emo:'🍔', line:'이틀째… 입만 운동 중이신가요?' },
+    { emo:'📉', line:'근손실 그래프 상승 중 📈 (나쁜 쪽으로)' },
+    { emo:'🧈', line:'몸이 버터처럼 녹는 중…' }
+  ],
+  d3_5: [            // 3~5일 — 본격 놀리기 (랜덤)
+    { emo:'😢', line:'운동화가 울면서 기다려요…' },
+    { emo:'👀', line:'헬스장이 실종 신고 넣기 직전!' },
+    { emo:'🐖', line:'돼지런 완료… 삼겹살 예약각?' },
+    { emo:'🫃', line:'뱃살이 자기소개 준비 중이래요' },
+    { emo:'🏳️', line:'근육이 백기 들었습니다' },
+    { emo:'📵', line:'헬스장 번호 차단하셨어요?' }
+  ],
+  d6_9: [            // 6~9일 — 더 세게
+    { emo:'🫠', line:'근육이 완전히 녹아버렸어요…' },
+    { emo:'🦥', line:'나무늘보도 이것보단 움직여요' },
+    { emo:'🐷', line:'이제 돼지가 아니라 멧돼지급' },
+    { emo:'🪦', line:'R.I.P 식스팩 (한때 있었다고 함)' },
+    { emo:'📺', line:'넷플릭스 랭킹 1위 달성하셨죠?' },
+    { emo:'🍗', line:'운동 대신 치킨을 조지는 중' }
+  ],
+  d10: [             // 10일+ — 끝판왕 놀림
+    { emo:'🛌', line:'겨울잠 중? 봄이 와도 안 일어남' },
+    { emo:'🦕', line:'마지막 운동이 쥬라기 시대였나요?' },
+    { emo:'🧟', line:'좀비도 이것보단 활동적입니다' },
+    { emo:'🏺', line:'유물 발굴: 안 쓰인 운동화 발견' },
+    { emo:'🐌', line:'달팽이가 추월했어요 저 멀리…' },
+    { emo:'🎭', line:'헬스장 회원권: 기부 천사 등극' }
+  ]
+};
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 function offComment(f){
-  if(!f.hasAny) return { emo:'💪', line:'첫 오운완을 기다리고 있어요!' };
+  if(!f.hasAny) return pick(OFF_MSGS.none);
   var d = f.daysOff;
-  if(d <= 1) return { emo:'🤫', line:'어제는 휴일이였나봐요? 운동 쉿!' };
-  if(d === 2) return { emo:'🐷', line:'슬슬 돼지가 되고 있나봐요?' };
-  if(d === 3) return { emo:'😢', line:'운동화가 울고 있어요…' };
-  if(d <= 5) return { emo:'👀', line:'헬스장이 당신을 그리워해요…' };
-  if(d <= 9) return { emo:'🫠', line:'근육이 녹는 중… 어서 돌아와요!' };
-  return { emo:'🛌', line:'혹시 겨울잠 자는 중? 일어나요!' };
+  if(d <= 1) return pick(OFF_MSGS.d1);
+  if(d === 2) return pick(OFF_MSGS.d2);
+  if(d <= 5) return pick(OFF_MSGS.d3_5);
+  if(d <= 9) return pick(OFF_MSGS.d6_9);
+  return pick(OFF_MSGS.d10);
 }
 function renderFeed(){
   var g = $('feedGrid'); if(!g) return;
   g.innerHTML = FEED.map(function(f, i){
+    var cal = '<button class="calbtn" title="지난 오운완 보기" onclick="event.stopPropagation();openFinishHistory(\'' + esc(f.who) + '\')">📅</button>';
     if(f.hasPhoto){
-      return '<button class="feedcard" onclick="openFeedPhoto(' + i + ')">'
-        + '<img src="' + esc(f.thumb) + '" class="feedimg">'
-        + '<div class="feedcap"><b>' + esc(f.who) + '</b><span>어제 · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</span></div>'
-        + '</button>';
+      return '<div class="feedcard">'
+        + '<div class="feedclick" onclick="openFeedPhoto(' + i + ')"><img src="' + esc(f.thumb) + '" class="feedimg"></div>'
+        + '<div class="feedcap"><b>' + esc(f.who) + '</b>' + cal + '<span>어제 · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</span></div>'
+        + '</div>';
     }
     var c = offComment(f);
     var since = f.hasAny ? ('마지막 운동 ' + f.daysOff + '일 전') : '아직 기록 없음';
-    return '<div class="feedcard feedmsg" aria-disabled="true">'
+    return '<div class="feedcard feedmsg">'
       + '<div class="feedimg feednoimg"><span class="emo">' + c.emo + '</span><span class="line">' + esc(c.line) + '</span></div>'
-      + '<div class="feedcap"><b>' + esc(f.who) + '</b><span>' + esc(since) + '</span></div>'
+      + '<div class="feedcap"><b>' + esc(f.who) + '</b>' + cal + '<span>' + esc(since) + '</span></div>'
       + '</div>';
   }).join('');
 }
@@ -184,6 +227,47 @@ function openFeedPhoto(i){
   sh.classList.add('on');
 }
 function closeFeedPhoto(){ var sh=$('feedModal'); if(sh) sh.classList.remove('on'); }
+
+/* 지난 오운완 날짜별로 보기 (달력 버튼) */
+var HIST = [];
+function openFinishHistory(who){
+  var sh = $('histModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='histModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeHist()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>📅 ' + esc(who) + '님의 오운완 기록</b><button class="xbtn" onclick="closeHist()">✕</button></div>'
+    +   '<div class="modalbody" id="histBody"><p class="muted">불러오는 중…</p></div>'
+    + '</div>';
+  sh.classList.add('on');
+  call('finishHistory', who).then(function(list){
+    HIST = list || [];
+    var body = $('histBody'); if(!body) return;
+    if(!HIST.length){ body.innerHTML = '<p class="muted">아직 오운완 사진이 없어요.</p>'; return; }
+    body.innerHTML = '<div class="grid-cards">' + HIST.map(function(h, i){
+      return '<button class="pickcard" onclick="openHistPhoto(' + i + ')">'
+        + '<img class="pcimg" src="' + esc(h.thumb) + '">'
+        + '<div class="pcname">' + esc(h.date) + '</div>'
+        + (h.workout ? '<div class="pcsub">' + esc(h.workout) + '</div>' : '')
+        + '</button>';
+    }).join('') + '</div>';
+  }).catch(function(e){ var b=$('histBody'); if(b) b.innerHTML='<p class="muted">오류: '+esc(e&&e.message||e)+'</p>'; });
+}
+function closeHist(){ var sh=$('histModal'); if(sh) sh.classList.remove('on'); }
+function openHistPhoto(i){
+  var h = HIST[i]; if(!h) return;
+  var big = String(h.thumb).replace(/sz=w\d+/, 'sz=w1000');
+  var sh = $('feedModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='feedModal'; sh.className='lightbox'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="lb-bg" onclick="closeFeedPhoto()"></div>'
+    + '<div class="lb-inner">'
+    +   '<button class="lb-x" onclick="closeFeedPhoto()">✕</button>'
+    +   '<img src="' + esc(big) + '" class="lb-img">'
+    +   '<div class="lb-cap"><b>' + esc(h.who) + '</b> · ' + esc(h.date) + (h.workout ? ' · ' + esc(h.workout) : '') + '</div>'
+    + '</div>';
+  sh.classList.add('on');
+}
 
 /* ====================================================================
  * 기록하기 화면
@@ -651,6 +735,7 @@ function sessionCard(s){
 var TREND = null;         // { running:[], weights:[], people:[] }
 var TREND_CHARTS = [];    // Chart 인스턴스 (다시 그릴 때 정리)
 var TREND_EQUIP = '';     // 무게 추이에서 고른 기구/동작 키
+var TREND_RANGE = 'month';// 기간: week | month | q(3달) | all
 
 function renderTrend(){
   $('trend').innerHTML = '<div class="card"><p class="muted">불러오는 중…</p></div>';
@@ -664,51 +749,70 @@ function renderTrend(){
 function weekAgo(n){ var d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
 function ymd(s){ return String(s||'').slice(0,10); }
 
+function rangeFrom(range){
+  if(range==='week') return weekAgo(7);
+  if(range==='month') return weekAgo(30);
+  if(range==='q') return weekAgo(90);
+  return '0000';
+}
+/* 기간으로 필터한 데이터 */
+function trendInRange(){
+  var from = rangeFrom(TREND_RANGE);
+  return {
+    running: (TREND.running||[]).filter(function(r){ return ymd(r.date) >= from; }),
+    weights: (TREND.weights||[]).filter(function(w){ return ymd(w.date) >= from; }),
+    people: TREND.people||[],
+  };
+}
+function trendRangeBtns(){
+  var opts = [['week','1주'],['month','1달'],['q','3달'],['all','전체']];
+  return '<div class="seg" style="margin:14px 0 0">' + opts.map(function(o){
+    return '<button class="chipbtn' + (TREND_RANGE===o[0]?' on':'') + '" onclick="TREND_RANGE=\'' + o[0] + '\';drawTrend()">' + o[1] + '</button>';
+  }).join('') + '</div>';
+}
+
 function drawTrend(){
-  // 집계
-  var stat = computeStat(TREND, 'all');
-  var equipKeys = equipKeyList(TREND.weights);
-  if(!TREND_EQUIP && equipKeys.length) TREND_EQUIP = equipKeys[0];
+  var d = trendInRange();
+  var stat = computeStat(TREND, TREND_RANGE);
+  var equipKeys = equipKeyList(d.weights);
+  if(equipKeys.indexOf(TREND_EQUIP) < 0) TREND_EQUIP = equipKeys[0] || '';
 
   $('trend').innerHTML =
     '<div class="card">'
     +   '<div class="row" style="justify-content:space-between;align-items:center">'
-    +     '<h2 style="margin:0">발전 추이</h2>'
+    +     '<h2 style="margin:0">성과 분석</h2>'
     +     '<button class="pillbtn" onclick="openShare()">📤 공유</button>'
     +   '</div>'
+    +   trendRangeBtns()
     +   '<div class="statline">'
     +     statBox('운동', stat.sessions + '회') + statBox('런닝', stat.km + 'km') + statBox('총 볼륨', fmt(stat.volume) + 'kg')
     +   '</div>'
     + '</div>'
 
-    // 기구별 무게 추이
     + '<div class="card">'
-    +   '<h2>🏋 무게 추이</h2>'
+    +   '<h2>🏋 무게 변화</h2>'
     +   (equipKeys.length
         ? '<select class="bigsel" onchange="TREND_EQUIP=this.value;drawTrend()">'
             + equipKeys.map(function(k){ return '<option value="' + esc(k) + '"' + (k===TREND_EQUIP?' selected':'') + '>' + esc(k) + '</option>'; }).join('')
-          + '</select><div class="chartwrap"><canvas id="cWeight"></canvas></div>'
-        : '<p class="muted">웨이트 기록이 쌓이면 여기 무게 변화가 그려져요.</p>')
+          + '</select><div class="chartwrap tall"><canvas id="cWeight"></canvas></div>'
+        : '<p class="muted">이 기간엔 웨이트 기록이 없어요.</p>')
     + '</div>'
 
-    // 런닝 추이
     + '<div class="card">'
-    +   '<h2>🏃 런닝 추이</h2>'
-    +   (TREND.running.length ? '<div class="chartwrap"><canvas id="cRun"></canvas></div>'
-                             : '<p class="muted">런닝 기록이 쌓이면 거리·칼로리 변화가 그려져요.</p>')
+    +   '<h2>🏃 런닝 변화</h2>'
+    +   (d.running.length ? '<div class="chartwrap tall"><canvas id="cRun"></canvas></div>'
+                         : '<p class="muted">이 기간엔 런닝 기록이 없어요.</p>')
     + '</div>'
 
-    // 주간 횟수 + 부부 비교
     + '<div class="card">'
-    +   '<h2>📅 최근 주간 운동 횟수</h2>'
+    +   '<h2>📅 주간 운동 횟수</h2>'
     +   '<div class="chartwrap"><canvas id="cWeek"></canvas></div>'
     + '</div>';
 
-  // 차트 그리기 (Chart.js 로드됐을 때만)
   if(!window.Chart){ return; }
   TREND_CHARTS.forEach(function(c){ try{c.destroy();}catch(e){} }); TREND_CHARTS = [];
-  if(equipKeys.length) drawWeightChart();
-  if(TREND.running.length) drawRunChart();
+  if(equipKeys.length) drawWeightChart(d);
+  if(d.running.length) drawRunChart(d);
   drawWeekChart();
 }
 
@@ -745,18 +849,30 @@ function computeStat(d, range){
   return { sessions:Object.keys(sess).length, km:Math.round(km*10)/10, kcal:Math.round(kcal), volume:Math.round(volume), best:bestArr, byWho:byWho };
 }
 
-var CHART_FONT = { family:'Gothic A1', size:12 };
+var CHART_FONT = { family:'Gothic A1', size:12, weight:'600' };
+function mmdd(s){ return String(s||'').slice(5); }   // 2026-10-24 → 10-24
+/* 캔버스 세로 그라데이션 채움 (위 진함 → 아래 투명) */
+function gradFill(canvas, color){
+  try{
+    var c = canvas.getContext('2d');
+    var g = c.createLinearGradient(0,0,0,300);
+    g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+    return g;
+  }catch(e){ return color; }
+}
 function chartBase(){
   return { responsive:true, maintainAspectRatio:false,
-    plugins:{ legend:{ labels:{ color:'#9aa3b2', font:CHART_FONT } } },
-    scales:{ x:{ ticks:{ color:'#9aa3b2', font:CHART_FONT }, grid:{ color:'#2a2f3a' } },
-             y:{ ticks:{ color:'#9aa3b2', font:CHART_FONT }, grid:{ color:'#2a2f3a' } } } };
+    interaction:{ mode:'index', intersect:false },
+    plugins:{ legend:{ labels:{ color:'#cfd6e2', font:CHART_FONT, usePointStyle:true, pointStyle:'circle', padding:16 } },
+      tooltip:{ backgroundColor:'#20252f', borderColor:'#353b47', borderWidth:1, titleColor:'#eef1f5', bodyColor:'#cfd6e2', padding:12, cornerRadius:10 } },
+    scales:{ x:{ ticks:{ color:'#8a93a4', font:CHART_FONT, maxRotation:0, autoSkip:true, maxTicksLimit:7 }, grid:{ display:false } },
+             y:{ ticks:{ color:'#8a93a4', font:CHART_FONT }, grid:{ color:'rgba(255,255,255,.05)' }, border:{ display:false } } } };
 }
 
-function drawWeightChart(){
+function drawWeightChart(d){
   // 고른 기구/동작의 날짜별 최고무게
   var byDate = {};
-  TREND.weights.forEach(function(w){
+  d.weights.forEach(function(w){
     var k = w.equip + (w.move?' · '+w.move:'');
     if(k!==TREND_EQUIP || w.weight===''||w.weight==null) return;
     var dt = ymd(w.date), v = Number(w.weight)||0;
@@ -765,23 +881,25 @@ function drawWeightChart(){
   var dates = Object.keys(byDate).sort();
   var ctx = $('cWeight'); if(!ctx) return;
   TREND_CHARTS.push(new Chart(ctx, { type:'line',
-    data:{ labels:dates, datasets:[{ label:TREND_EQUIP+' 최고무게(kg)', data:dates.map(function(d){return byDate[d];}),
-      borderColor:'#c6f432', backgroundColor:'rgba(198,244,50,.15)', tension:.3, fill:true, pointRadius:4, pointBackgroundColor:'#c6f432' }] },
+    data:{ labels:dates.map(mmdd), datasets:[{ label:TREND_EQUIP+' 최고무게(kg)', data:dates.map(function(d){return byDate[d];}),
+      borderColor:'#c6f432', backgroundColor:gradFill(ctx,'rgba(198,244,50,.35)'), borderWidth:3, tension:.35, fill:true,
+      pointRadius:5, pointHoverRadius:7, pointBackgroundColor:'#c6f432', pointBorderColor:'#13161d', pointBorderWidth:2 }] },
     options:chartBase() }));
 }
-function drawRunChart(){
+function drawRunChart(d){
   var byDate = {};
-  TREND.running.forEach(function(r){ var dt=ymd(r.date); byDate[dt]=byDate[dt]||{km:0,kcal:0}; byDate[dt].km+=Number(r.km)||0; byDate[dt].kcal+=Number(r.kcal)||0; });
+  d.running.forEach(function(r){ var dt=ymd(r.date); byDate[dt]=byDate[dt]||{km:0,kcal:0}; byDate[dt].km+=Number(r.km)||0; byDate[dt].kcal+=Number(r.kcal)||0; });
   var dates = Object.keys(byDate).sort();
   var ctx = $('cRun'); if(!ctx) return;
   TREND_CHARTS.push(new Chart(ctx, { type:'line',
-    data:{ labels:dates, datasets:[
-      { label:'거리(km)', data:dates.map(function(d){return Math.round(byDate[d].km*10)/10;}), borderColor:'#49e39b', backgroundColor:'rgba(73,227,155,.12)', tension:.3, fill:true, yAxisID:'y' },
-      { label:'칼로리(kcal)', data:dates.map(function(d){return Math.round(byDate[d].kcal);}), borderColor:'#ff5a5f', tension:.3, yAxisID:'y1' }
+    data:{ labels:dates.map(mmdd), datasets:[
+      { label:'거리(km)', data:dates.map(function(d){return Math.round(byDate[d].km*10)/10;}), borderColor:'#49e39b', backgroundColor:gradFill(ctx,'rgba(73,227,155,.3)'), borderWidth:3, tension:.35, fill:true, pointRadius:4, pointHoverRadius:6, pointBackgroundColor:'#49e39b', yAxisID:'y' },
+      { label:'칼로리(kcal)', data:dates.map(function(d){return Math.round(byDate[d].kcal);}), borderColor:'#ff5a5f', borderWidth:3, tension:.35, pointRadius:4, pointBackgroundColor:'#ff5a5f', yAxisID:'y1' }
     ]},
-    options:Object.assign(chartBase(), { scales:{ x:{ ticks:{color:'#9aa3b2',font:CHART_FONT}, grid:{color:'#2a2f3a'} },
-      y:{ position:'left', ticks:{color:'#49e39b',font:CHART_FONT}, grid:{color:'#2a2f3a'} },
-      y1:{ position:'right', ticks:{color:'#ff5a5f',font:CHART_FONT}, grid:{drawOnChartArea:false} } } }) }));
+    options:Object.assign(chartBase(), { scales:{
+      x:{ ticks:{color:'#8a93a4',font:CHART_FONT,maxRotation:0,autoSkip:true,maxTicksLimit:7}, grid:{display:false} },
+      y:{ position:'left', ticks:{color:'#49e39b',font:CHART_FONT}, grid:{color:'rgba(255,255,255,.05)'}, border:{display:false} },
+      y1:{ position:'right', ticks:{color:'#ff5a5f',font:CHART_FONT}, grid:{drawOnChartArea:false}, border:{display:false} } } }) }));
 }
 function drawWeekChart(){
   // 최근 8주, 사람별 운동 횟수(세션=날짜+사람)
@@ -940,4 +1058,129 @@ function downloadShare(){
   a.download='운동카드_' + new Date().toISOString().slice(0,10) + '.jpg';
   document.body.appendChild(a); a.click(); a.remove();
   toast('이미지를 저장했어요. 스토리에 올려보세요 💪');
+}
+
+/* ====================================================================
+ * 부부 VS 대결 카드 (홈 ⚔️ 대결) — 누가 이번 주 이겼나!
+ * ==================================================================== */
+var VS_RANGE = 'week';
+function openVersus(){
+  VS_RANGE = 'week';
+  var open = function(){
+    var sh = $('vsModal');
+    if(!sh){ sh=document.createElement('div'); sh.id='vsModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+    sh.innerHTML =
+      '<div class="modalbg" onclick="closeVs()"></div>'
+      + '<div class="modalbox">'
+      +   '<div class="modalhead"><b>⚔️ 부부 운동 대결</b><button class="xbtn" onclick="closeVs()">✕</button></div>'
+      +   '<div class="modalbody">'
+      +     '<div class="seg" id="vsRange">' + vsRangeBtn('week','이번 주') + vsRangeBtn('month','이번 달') + vsRangeBtn('all','전체') + '</div>'
+      +     '<div class="sharepreview"><canvas id="vsCanvas"></canvas></div>'
+      +     '<button class="button accent" style="width:100%" onclick="downloadVs()">이미지로 저장</button>'
+      +     '<p class="muted" style="text-align:center;margin-top:8px">진 사람 놀리는 용도… 스토리 각 😈</p>'
+      +   '</div>'
+      + '</div>';
+    sh.classList.add('on');
+    renderVsCard();
+  };
+  if(TREND){ open(); }
+  else { cover(true,'불러오는 중…'); call('trendData').then(function(d){ cover(false); TREND=d||{running:[],weights:[],people:[]}; open(); }).catch(function(e){ cover(false); toast('오류: '+(e&&e.message||e)); }); }
+}
+function vsRangeBtn(v,label){ return '<button class="button ' + (VS_RANGE===v?'accent':'ghost') + '" style="flex:1" onclick="VS_RANGE=\'' + v + '\';refreshVsSeg();renderVsCard()">' + esc(label) + '</button>'; }
+function refreshVsSeg(){ var e=$('vsRange'); if(e) e.innerHTML = vsRangeBtn('week','이번 주')+vsRangeBtn('month','이번 달')+vsRangeBtn('all','전체'); }
+function closeVs(){ var sh=$('vsModal'); if(sh) sh.classList.remove('on'); }
+
+/* 사람별 지표 집계 */
+function vsStats(range){
+  var from = range==='week' ? weekAgo(7) : range==='month' ? weekAgo(30) : '0000';
+  var people = (TREND.people||[]).slice(0,2);
+  var runs = (TREND.running||[]).filter(function(r){ return ymd(r.date)>=from; });
+  var wts = (TREND.weights||[]).filter(function(w){ return ymd(w.date)>=from; });
+  return people.map(function(p){
+    var sess={}; runs.concat(wts).forEach(function(x){ if(x.who===p) sess[x.date]=1; });
+    var km=0; runs.forEach(function(r){ if(r.who===p) km+=Number(r.km)||0; });
+    var vol=0; wts.forEach(function(w){ if(w.who===p) vol+=(Number(w.weight)||0)*(Number(w.reps)||0); });
+    return { who:p, sessions:Object.keys(sess).length, km:Math.round(km*10)/10, volume:Math.round(vol) };
+  });
+}
+
+function renderVsCard(){
+  var cv=$('vsCanvas'); if(!cv) return;
+  var W=1080,H=1920; cv.width=W; cv.height=H;
+  var ctx=cv.getContext('2d');
+  var st = vsStats(VS_RANGE);
+  var title = VS_RANGE==='week'?'이번 주':VS_RANGE==='month'?'이번 달':'전체';
+  var A = st[0] || {who:'남편',sessions:0,km:0,volume:0};
+  var B = st[1] || {who:'아내',sessions:0,km:0,volume:0};
+
+  // 배경
+  var g=ctx.createLinearGradient(0,0,W,H); g.addColorStop(0,'#13161d'); g.addColorStop(1,'#0c0e12');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // 가운데 세로 분단선
+  ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(W/2,420); ctx.lineTo(W/2,H-360); ctx.stroke();
+
+  ctx.textAlign='center';
+  ctx.fillStyle='#c6f432'; ctx.font='800 40px "Gothic A1",sans-serif';
+  ctx.fillText('● 운동 레포트', W/2, 140);
+  ctx.fillStyle='#eef1f5'; ctx.font='900 96px "Gothic A1",sans-serif';
+  ctx.fillText(title + ' 대결 ⚔️', W/2, 260);
+
+  // 두 사람 이름
+  var lx=W*0.26, rx=W*0.74;
+  ctx.font='800 64px "Gothic A1",sans-serif';
+  ctx.fillStyle='#c6f432'; ctx.fillText(A.who, lx, 400);
+  ctx.fillStyle='#49e39b'; ctx.fillText(B.who, rx, 400);
+
+  // 지표 3개 대결
+  var metrics=[
+    { label:'운동 횟수', key:'sessions', unit:'회' },
+    { label:'총 볼륨', key:'volume', unit:'kg', fmt:true },
+    { label:'런닝 거리', key:'km', unit:'km' },
+  ];
+  var y=560, gap=380, winA=0, winB=0;
+  metrics.forEach(function(m){
+    var a=A[m.key]||0, b=B[m.key]||0;
+    var aw = a>b, bw = b>a;
+    if(aw) winA++; if(bw) winB++;
+    // 라벨 (가운데)
+    ctx.fillStyle='#8a93a4'; ctx.font='700 38px "Gothic A1",sans-serif';
+    ctx.fillText(m.label, W/2, y-10);
+    // 값
+    var av = m.fmt?fmt(a):String(a), bv = m.fmt?fmt(b):String(b);
+    ctx.font='900 110px "Gothic A1",sans-serif';
+    ctx.fillStyle = aw?'#c6f432':'#5b6472'; ctx.fillText(av, lx, y+110);
+    ctx.fillStyle = bw?'#49e39b':'#5b6472'; ctx.fillText(bv, rx, y+110);
+    // 단위
+    ctx.font='700 40px "Gothic A1",sans-serif';
+    ctx.fillStyle='#8a93a4'; ctx.fillText(m.unit, lx, y+160); ctx.fillText(m.unit, rx, y+160);
+    // 승자 왕관
+    ctx.font='60px "Gothic A1",sans-serif';
+    if(aw) ctx.fillText('👑', lx, y+40); if(bw) ctx.fillText('👑', rx, y+40);
+    y += gap;
+  });
+
+  // 종합 승자
+  var wy=H-280;
+  ctx.font='800 50px "Gothic A1",sans-serif'; ctx.fillStyle='#eef1f5';
+  var verdict;
+  if(winA>winB) verdict = '🏆 승자: ' + A.who + '!';
+  else if(winB>winA) verdict = '🏆 승자: ' + B.who + '!';
+  else verdict = '🤝 무승부!';
+  ctx.fillText(verdict, W/2, wy);
+  ctx.font='600 36px "Gothic A1",sans-serif'; ctx.fillStyle='#9aa3b2';
+  var loser = winA>winB ? B.who : winB>winA ? A.who : null;
+  if(loser) ctx.fillText(loser + '님, 분발하세요 😏', W/2, wy+70);
+
+  ctx.fillStyle='#5b6472'; ctx.font='500 30px "Gothic A1",sans-serif';
+  ctx.fillText(new Date().toISOString().slice(0,10), W/2, H-110);
+  ctx.textAlign='left';
+}
+function downloadVs(){
+  var cv=$('vsCanvas'); if(!cv) return;
+  var a=document.createElement('a');
+  a.href=cv.toDataURL('image/jpeg',0.92);
+  a.download='부부대결_' + new Date().toISOString().slice(0,10) + '.jpg';
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('대결 카드 저장! 진 사람 놀려주기 😈');
 }
