@@ -4,9 +4,11 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF1.3';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF1.4';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
-  const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체', '복근', '기타'];
+  const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
+  // 상체/하체 분류: 하체만 하체, 나머지는 상체
+  const partGroup = (part) => (String(part) === '하체' ? '하체' : '상체');
 
   const ready = !!(window.firebase && window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.projectId);
   if (!ready) { window.FB = { ok: false, version: VERSION }; return; }
@@ -84,7 +86,7 @@
   async function addEquipment(d) {
     const u = requireUser(); d = d || {};
     const name = tidy(d.name, 60); if (!name) fail('기구 이름을 입력해 주세요.');
-    const part = BODY_PARTS.indexOf(tidy(d.part)) >= 0 ? d.part : '기타';
+    const part = BODY_PARTS.indexOf(tidy(d.part)) >= 0 ? d.part : '가슴';
     let photo = { url: '', thumb: '' };
     if (d.photo) photo = await uploadPhoto('기구', d.photo);
     const ref = await col('equipment').add({ name, part, photoUrl: photo.url || '', photoThumb: photo.thumb || '', owner: u.name, uid: u.uid, createdAt: now() });
@@ -220,6 +222,21 @@
     });
   }
 
+  /* ---------- 기구 1개의 내 기록 (날짜별 무게×횟수) ---------- */
+  async function equipLog(equipName) {
+    const u = requireUser();
+    const name = tidy(equipName, 60);
+    const all = await col('weights').where('equip', '==', name).get().then(docsOf);
+    const mine = all.filter((w) => w.who === u.name);
+    // 날짜+동작 단위로 묶기
+    const byKey = {};
+    mine.sort((a, b) => (a.setNo || 0) - (b.setNo || 0)).forEach((w) => {
+      const k = w.date + '|' + (w.move || '');
+      (byKey[k] = byKey[k] || { date: w.date, move: w.move || '', sets: [] }).sets.push({ weight: w.weight, reps: w.reps });
+    });
+    return Object.values(byKey).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }
+
   /* ---------- 특정 날짜의 부부 오운완 (VS 콜라주용) ---------- */
   async function dayFinish(date) {
     requireUser();
@@ -255,7 +272,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish };
+  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
@@ -266,5 +283,6 @@
     authReady, signIn, signOut, call,
     me: () => USER,
     people: () => Object.values(USERS),
+    partGroup,
   };
 })();

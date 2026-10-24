@@ -624,12 +624,16 @@ function renderEquip(){
     var cards = GEAR.length ? GEAR.map(function(e){
       var moves = (e.moves||[]).map(function(m){ return '<span class="movetag">' + esc(m.name) + '</span>'; }).join('');
       return '<div class="card">'
-        + '<div style="display:flex;gap:12px;align-items:center">'
+        + '<div style="display:flex;gap:12px;align-items:center;cursor:pointer" onclick="openEquipLog(\'' + esc(e.name) + '\')">'
         +   (e.thumb ? '<img src="' + esc(e.thumb) + '" class="eqimg">' : '<div class="eqimg eqnoimg">🏋</div>')
         +   '<div style="flex:1"><b>' + esc(e.name) + '</b><br><span class="muted">' + esc(e.part) + ' · 동작 ' + (e.moves||[]).length + '개</span></div>'
+        +   '<span style="color:var(--sub);font-size:20px">›</span>'
         + '</div>'
         + (moves ? '<div class="movetags">' + moves + '</div>' : '<p class="muted" style="margin:8px 0 0">동작이 없어요.</p>')
-        + '<button class="softbtn" style="margin-top:8px" onclick="openMoveForm(\'' + e.id + '\')">＋ 이 기구에 동작 추가</button>'
+        + '<div class="row" style="gap:8px;margin-top:8px">'
+        +   '<button class="softbtn" style="margin:0;flex:1" onclick="openEquipLog(\'' + esc(e.name) + '\')">📈 내 기록</button>'
+        +   '<button class="softbtn" style="margin:0;flex:1" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
+        + '</div>'
         + '</div>';
     }).join('') : '<div class="card"><p class="muted">아직 등록된 기구가 없어요. 아래에서 추가해 보세요.</p></div>';
 
@@ -689,39 +693,122 @@ function submitMove(ev){
 function busyBtn(btn, label){ if(!btn) return; btn._html=btn.innerHTML; btn.disabled=true; btn.innerHTML=label; }
 function unbusyBtn(btn){ if(!btn || btn._html==null) return; btn.disabled=false; btn.innerHTML=btn._html; }
 
+/* 기구 1개로 한 내 기록 (날짜별) */
+function openEquipLog(name){
+  var sh = $('eqLogModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='eqLogModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeEquipLog()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>📈 ' + esc(name) + ' · 내 기록</b><button class="xbtn" onclick="closeEquipLog()">✕</button></div>'
+    +   '<div class="modalbody" id="eqLogBody"><p class="muted">불러오는 중…</p></div>'
+    + '</div>';
+  sh.classList.add('on');
+  call('equipLog', name).then(function(logs){
+    var body = $('eqLogBody'); if(!body) return;
+    if(!logs || !logs.length){ body.innerHTML = '<p class="muted">아직 이 기구로 기록한 게 없어요.</p>'; return; }
+    // 최고무게 한 줄 요약
+    var top = 0; logs.forEach(function(l){ l.sets.forEach(function(s){ if((Number(s.weight)||0)>top) top=Number(s.weight)||0; }); });
+    body.innerHTML = '<div class="savedline" style="margin-bottom:12px">🔥 최고 무게 ' + top + 'kg</div>'
+      + logs.map(function(l){
+        var sets = l.sets.map(function(s){ return (s.weight||0)+'kg×'+(s.reps||0); }).join(', ');
+        return '<div class="eqlogrow"><div class="eqlogdate">' + esc(l.date) + (l.move?' · '+esc(l.move):'') + '</div>'
+          + '<div class="eqlogsets">' + esc(sets) + '</div></div>';
+      }).join('');
+  }).catch(function(e){ var b=$('eqLogBody'); if(b) b.innerHTML='<p class="muted">오류: '+esc(e&&e.message||e)+'</p>'; });
+}
+function closeEquipLog(){ var sh=$('eqLogModal'); if(sh) sh.classList.remove('on'); }
+
 /* ====================================================================
- * 운동 일지 화면
+ * 운동 일지 — 달력 (부부 둘 다 색으로 표시) + 날짜 클릭 상세
  * ==================================================================== */
-var LIST_WHO = '';
+var LIST_SESS = [];               // 전체 세션 캐시
+var CAL_YM = null;                // 보고 있는 달 {y, m(0-based)}
 function renderList(){
   $('list').innerHTML = '<div class="card"><p class="muted">불러오는 중…</p></div>';
-  call('listSessions', LIST_WHO).then(function(sessions){
-    var filterBtns = '<div class="seg">' + whoBtn('', '전체') + PEOPLE.map(function(p){ return whoBtn(p, p); }).join('') + '</div>';
-    var body = sessions.length ? sessions.map(sessionCard).join('')
-      : '<div class="card"><p class="muted">아직 기록이 없어요.</p></div>';
-    $('list').innerHTML = filterBtns + body;
+  call('listSessions', '').then(function(sessions){
+    LIST_SESS = sessions || [];
+    if(!CAL_YM){ var n=new Date(); CAL_YM={ y:n.getFullYear(), m:n.getMonth() }; }
+    drawCalendar();
   }).catch(function(e){ $('list').innerHTML = '<div class="card"><p class="muted">오류: ' + esc(e&&e.message||e) + '</p></div>'; });
 }
-function whoBtn(v, label){
-  return '<button class="button ' + (LIST_WHO===v?'accent':'ghost') + '" style="flex:1" onclick="LIST_WHO=\'' + v + '\';renderList()">' + esc(label) + '</button>';
+function calShift(delta){
+  var d = new Date(CAL_YM.y, CAL_YM.m + delta, 1);
+  CAL_YM = { y:d.getFullYear(), m:d.getMonth() };
+  drawCalendar();
 }
-function sessionCard(s){
+/* 그 사람 색 (첫번째=라임, 두번째=민트) */
+function whoColor(who){ var i=PEOPLE.indexOf(who); return i===1 ? 'var(--ok)' : 'var(--main)'; }
+function drawCalendar(){
+  var y=CAL_YM.y, m=CAL_YM.m;
+  var first=new Date(y,m,1), startDay=(first.getDay()+6)%7;  // 월요일 시작
+  var daysInMonth=new Date(y,m+1,0).getDate();
+  var z=function(n){return(n<10?'0':'')+n;};
+  // 날짜별 작성자 모음
+  var byDate={};
+  LIST_SESS.forEach(function(s){
+    var dt=String(s.date).slice(0,10);
+    (byDate[dt]=byDate[dt]||{}); byDate[dt][s.who]=1;
+  });
+  var dows=['월','화','수','목','금','토','일'];
+  var head='<div class="calgrid calhead">'+dows.map(function(d){return '<div>'+d+'</div>';}).join('')+'</div>';
+  var cells='';
+  for(var i=0;i<startDay;i++) cells+='<div class="calcell empty"></div>';
+  var todayS=todayStr();
+  for(var day=1;day<=daysInMonth;day++){
+    var ds=y+'-'+z(m+1)+'-'+z(day);
+    var whos=byDate[ds]?Object.keys(byDate[ds]):[];
+    var dots=whos.map(function(w){return '<span class="caldot" style="background:'+whoColor(w)+'"></span>';}).join('');
+    var cls='calcell'+(whos.length?' has':'')+(ds===todayS?' today':'');
+    cells+='<div class="'+cls+'" '+(whos.length?'onclick="openDay(\''+ds+'\')"':'')+'>'
+      +'<span class="caldaynum">'+day+'</span><div class="caldots">'+dots+'</div></div>';
+  }
+  var legend=PEOPLE.map(function(p){return '<span class="leg"><span class="caldot" style="background:'+whoColor(p)+'"></span>'+esc(p)+'</span>';}).join('');
+  $('list').innerHTML =
+    '<div class="card">'
+    + '<div class="row" style="justify-content:space-between;align-items:center">'
+    +   '<button class="chipbtn" style="flex:none;padding:10px 14px" onclick="calShift(-1)">‹</button>'
+    +   '<b style="font-size:17px">'+y+'년 '+(m+1)+'월</b>'
+    +   '<button class="chipbtn" style="flex:none;padding:10px 14px" onclick="calShift(1)">›</button>'
+    + '</div>'
+    + '<div class="row" style="gap:14px;margin:10px 2px 0">'+legend+'</div>'
+    + head
+    + '<div class="calgrid">'+cells+'</div>'
+    + '<p class="muted" style="margin-top:10px">운동한 날을 누르면 그날 기록이 보여요.</p>'
+    + '</div>';
+}
+
+/* 그날 상세 모달 */
+function openDay(ds){
+  var list = LIST_SESS.filter(function(s){ return String(s.date).slice(0,10)===ds; });
+  var sh = $('dayModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='dayModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeDay()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>📋 ' + esc(ds) + '</b><button class="xbtn" onclick="closeDay()">✕</button></div>'
+    +   '<div class="modalbody">' + (list.length ? list.map(sessionDetail).join('') : '<p class="muted">기록이 없어요.</p>') + '</div>'
+    + '</div>';
+  sh.classList.add('on');
+}
+function closeDay(){ var sh=$('dayModal'); if(sh) sh.classList.remove('on'); }
+
+function sessionDetail(s){
   var run = (s.running||[]).map(function(r){
     var parts = [];
     if(r.min!=='') parts.push(r.min+'분'); if(r.km!=='') parts.push(r.km+'km');
     if(r.incline!=='') parts.push('경사'+r.incline); if(r.speed!=='') parts.push(r.speed+'km/h'); if(r.kcal!=='') parts.push(r.kcal+'kcal');
-    var ph = r.photo ? ' <a href="' + esc(r.photo) + '" target="_blank">사진</a>' : '';
-    return '<div class="muted" style="margin:2px 0">🏃 ' + esc(parts.join(' · ')) + ph + '</div>';
+    return '<div class="muted" style="margin:2px 0">🏃 ' + esc(parts.join(' · ')) + '</div>';
   }).join('');
   var wt = (s.weights||[]).map(function(w){
     var sets = (w.sets||[]).map(function(x){ return x.weight+'kg×'+x.reps; }).join(', ');
     var mv = w.move ? ' · ' + esc(w.move) : '';
     return '<div style="margin:3px 0">🏋 <b>' + esc(w.equip) + '</b>' + mv + ' <span class="muted">' + esc(sets) + '</span></div>';
   }).join('');
-  return '<div class="card">'
+  return '<div class="daysess">'
     + '<div class="row" style="justify-content:space-between">'
-    +   '<b>' + esc(s.date) + '</b>'
-    +   '<span class="muted">' + esc(s.who) + (s.workout ? ' · ' + esc(s.workout) : '') + '</span>'
+    +   '<b style="color:'+whoColor(s.who)+'">' + esc(s.who) + '</b>'
+    +   '<span class="muted">' + (s.workout ? esc(s.workout) : '') + '</span>'
     + '</div>'
     + (run || '')
     + (wt ? '<div style="margin-top:6px">' + wt + '</div>' : '')
@@ -749,12 +836,7 @@ function renderTrend(){
 function weekAgo(n){ var d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
 function ymd(s){ return String(s||'').slice(0,10); }
 
-function rangeFrom(range){
-  if(range==='week') return weekAgo(7);
-  if(range==='month') return weekAgo(30);
-  if(range==='q') return weekAgo(90);
-  return '0000';
-}
+function rangeFrom(range){ return statFrom(range); }
 /* 기간으로 필터한 데이터 */
 function trendInRange(){
   var from = rangeFrom(TREND_RANGE);
@@ -765,7 +847,7 @@ function trendInRange(){
   };
 }
 function trendRangeBtns(){
-  var opts = [['week','1주'],['month','1달'],['q','3달'],['all','전체']];
+  var opts = [['today','오늘'],['week','1주'],['month','1달'],['all','전체']];
   return '<div class="seg" style="margin:14px 0 0">' + opts.map(function(o){
     return '<button class="chipbtn' + (TREND_RANGE===o[0]?' on':'') + '" onclick="TREND_RANGE=\'' + o[0] + '\';drawTrend()">' + o[1] + '</button>';
   }).join('') + '</div>';
@@ -785,7 +867,11 @@ function drawTrend(){
     +   '</div>'
     +   trendRangeBtns()
     +   '<div class="statline">'
-    +     statBox('운동', stat.sessions + '회') + statBox('런닝', stat.km + 'km') + statBox('총 볼륨', fmt(stat.volume) + 'kg')
+    +     statBox('운동', stat.sessions + '회') + statBox('런닝', stat.km + 'km') + statBox('총 세트', stat.sets + '세트')
+    +   '</div>'
+    +   '<div class="splitstat">'
+    +     '<div class="ss"><span class="sslbl">상체</span><b>' + stat.upper.sets + '세트</b><span class="sskg">(' + addComma(stat.upper.kg) + 'kg)</span></div>'
+    +     '<div class="ss"><span class="sslbl">하체</span><b>' + stat.lower.sets + '세트</b><span class="sskg">(' + addComma(stat.lower.kg) + 'kg)</span></div>'
     +   '</div>'
     + '</div>'
 
@@ -820,6 +906,7 @@ function statBox(label, val){
   return '<div class="statbox"><div class="statval">' + esc(val) + '</div><div class="statlbl">' + esc(label) + '</div></div>';
 }
 function fmt(n){ n=Number(n)||0; return n>=1000 ? (Math.round(n/100)/10)+'k' : String(Math.round(n)); }
+function addComma(n){ return String(Math.round(Number(n)||0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
 
 /* 기구/동작 키 목록 (무게 데이터 있는 것만) */
 function equipKeyList(weights){
@@ -828,25 +915,38 @@ function equipKeyList(weights){
   return Object.keys(keys);
 }
 
-/* 통계 집계 · range: 'all' | 'week' | 'month' */
+/* 기간 시작일 · range: 'today' | 'week' | 'month' | 'q' | 'all' */
+function statFrom(range){
+  if(range==='today') return todayStr();
+  if(range==='week') return weekAgo(7);
+  if(range==='month') return weekAgo(30);
+  if(range==='q') return weekAgo(90);
+  return '0000';
+}
+/* 통계 집계 — 세트수/총무게를 상체·하체로 분리 */
 function computeStat(d, range){
-  var from = range==='week' ? weekAgo(7) : range==='month' ? weekAgo(30) : '0000';
+  var from = statFrom(range);
   var runs = (d.running||[]).filter(function(r){ return ymd(r.date) >= from; });
   var wts = (d.weights||[]).filter(function(w){ return ymd(w.date) >= from; });
   var sess = {}; runs.concat(wts).forEach(function(x){ sess[x.date+'|'+x.who]=1; });
   var km = 0; runs.forEach(function(r){ km += Number(r.km)||0; });
   var kcal = 0; runs.forEach(function(r){ kcal += Number(r.kcal)||0; });
-  var volume = 0, best = {};
+  // 상체/하체 세트수 + 총무게(무게×횟수 합)
+  var g = { '상체':{sets:0,kg:0}, '하체':{sets:0,kg:0} };
+  var best = {};
   wts.forEach(function(w){
-    var vol = (Number(w.weight)||0)*(Number(w.reps)||0); volume += vol;
+    var grp = FB.partGroup(w.part); if(!g[grp]) g[grp]={sets:0,kg:0};
+    g[grp].sets += 1;
+    g[grp].kg += (Number(w.weight)||0)*(Number(w.reps)||0);
     var k = w.equip + (w.move?' · '+w.move:'');
     if(!best[k] || (Number(w.weight)||0) > best[k]) best[k] = Number(w.weight)||0;
   });
-  // 최고기록 상위 2개
   var bestArr = Object.keys(best).map(function(k){ return {k:k, v:best[k]}; }).sort(function(a,b){ return b.v-a.v; }).slice(0,2);
-  // 부부별 횟수
   var byWho = {}; Object.keys(sess).forEach(function(key){ var who=key.split('|')[1]; byWho[who]=(byWho[who]||0)+1; });
-  return { sessions:Object.keys(sess).length, km:Math.round(km*10)/10, kcal:Math.round(kcal), volume:Math.round(volume), best:bestArr, byWho:byWho };
+  var totalSets = g['상체'].sets + g['하체'].sets;
+  return { sessions:Object.keys(sess).length, km:Math.round(km*10)/10, kcal:Math.round(kcal),
+    sets:totalSets, upper:{ sets:g['상체'].sets, kg:Math.round(g['상체'].kg) }, lower:{ sets:g['하체'].sets, kg:Math.round(g['하체'].kg) },
+    best:bestArr, byWho:byWho };
 }
 
 var CHART_FONT = { family:'Gothic A1', size:12, weight:'600' };
@@ -936,7 +1036,7 @@ function openShare(){
     +   '<div class="modalhead"><b>📤 운동 카드 공유</b><button class="xbtn" onclick="closeShare()">✕</button></div>'
     +   '<div class="modalbody">'
     +     '<div class="seg" id="shareRange">'
-    +       rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('all','전체')
+    +       rangeBtn('today','오늘') + rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('all','전체')
     +     '</div>'
     +     '<div class="picker"><div class="picklabel">배경 사진 (선택 안 하면 기본 배경)</div>'
     +       '<button class="photobtn" onclick="openSharePhoto()">📷 배경 사진 넣기</button>'
@@ -952,8 +1052,8 @@ function openShare(){
   wireSharePhoto();
   renderShareCard();
 }
-function rangeBtn(v,label){ return '<button class="button ' + (SHARE_RANGE===v?'accent':'ghost') + '" style="flex:1" onclick="SHARE_RANGE=\'' + v + '\';refreshShareSeg();renderShareCard()">' + esc(label) + '</button>'; }
-function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('all','전체'); }
+function rangeBtn(v,label){ return '<button class="button ' + (SHARE_RANGE===v?'accent':'ghost') + '" style="flex:1;padding:12px 4px;font-size:13px" onclick="SHARE_RANGE=\'' + v + '\';refreshShareSeg();renderShareCard()">' + esc(label) + '</button>'; }
+function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('today','오늘')+rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('all','전체'); }
 function closeShare(){ var sh=$('shareModal'); if(sh) sh.classList.remove('on'); SHARE_PHOTO=null; }
 function openSharePhoto(){ openPhotoSheetFor('share'); }
 function wireSharePhoto(){
@@ -981,7 +1081,7 @@ function renderShareCard(){
   var W=1080, H=1920; cv.width=W; cv.height=H;
   var ctx = cv.getContext('2d');
   var s = computeStat(TREND, SHARE_RANGE);
-  var title = SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '전체 기록';
+  var title = SHARE_RANGE==='today' ? '오늘' : SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '전체 기록';
 
   function paint(bgImg){
     // 배경
@@ -1014,7 +1114,7 @@ function renderShareCard(){
     var y=560;
     bigStat(ctx, pad, y, s.sessions, '회', '운동 횟수');
     bigStat(ctx, pad, y+260, s.km, 'km', '런닝 거리');
-    bigStat(ctx, pad, y+520, fmt(s.volume), 'kg', '총 볼륨 (무게×횟수)');
+    bigStat(ctx, pad, y+520, s.sets, '세트', '총 세트 (상체 ' + s.upper.sets + ' · 하체 ' + s.lower.sets + ')');
 
     // 최고기록
     var by=560+780;

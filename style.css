@@ -191,6 +191,29 @@ select{-webkit-appearance:none;appearance:none;
 .movetags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .movetag{font-size:12px;font-weight:700;color:var(--main);background:rgba(198,244,50,.1);border:1px solid rgba(198,244,50,.25);border-radius:999px;padding:4px 11px}
 
+/* ===== 운동일지 달력 ===== */
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:12px}
+.calhead{margin-top:14px}
+.calhead>div{text-align:center;font-size:12px;font-weight:700;color:var(--sub);padding:4px 0}
+.calcell{position:relative;aspect-ratio:1/1;border-radius:10px;background:var(--card2);border:1px solid transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.calcell.empty{background:transparent}
+.calcell.has{cursor:pointer;border-color:var(--line)}
+.calcell.has:hover{border-color:var(--main)}
+.calcell.today{box-shadow:inset 0 0 0 2px var(--main-d)}
+.caldaynum{font-size:13px;font-weight:700;color:var(--text)}
+.calcell.empty .caldaynum{display:none}
+.caldots{display:flex;gap:3px;min-height:7px}
+.caldot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.leg{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sub);font-weight:600}
+.daysess{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;background:var(--card2)}
+.daysess:last-child{margin-bottom:0}
+
+/* 기구별 내 기록 모달 행 */
+.eqlogrow{border-bottom:1px solid var(--line);padding:11px 0}
+.eqlogrow:last-child{border-bottom:0}
+.eqlogdate{font-size:13px;font-weight:700;color:var(--main)}
+.eqlogsets{font-size:14px;color:var(--text);margin-top:3px}
+
 /* ===== 세트 입력 폼 헤더 ===== */
 .drafthead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:16px}
 .drafthead .linkback{margin-left:auto;padding:0}
@@ -215,6 +238,12 @@ select{-webkit-appearance:none;appearance:none;
 .statbox{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:14px 8px;text-align:center}
 .statval{font-size:22px;font-weight:900;color:var(--main);line-height:1.1}
 .statlbl{font-size:12px;color:var(--sub);margin-top:4px;font-weight:600}
+/* 상체/하체 세트 */
+.splitstat{display:flex;gap:10px;margin-top:10px}
+.splitstat .ss{flex:1;display:flex;align-items:baseline;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.splitstat .sslbl{font-size:13px;font-weight:700;color:var(--main)}
+.splitstat .ss b{font-size:17px;font-weight:800;color:var(--text)}
+.splitstat .sskg{font-size:12px;color:var(--sub)}
 .chartwrap{position:relative;height:240px;margin-top:12px}
 .chartwrap.tall{height:300px}
 .bigsel{margin-bottom:0}
