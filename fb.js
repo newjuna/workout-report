@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF2.5';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF2.6';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -135,6 +135,72 @@
       } catch (e) {}
     }
     return { ok: true, gear: await listGear() };
+  }
+
+  /* ---------- 기구 수정 (이름·부위·사진) + 과거 기록 이름 일괄변경 ---------- */
+  async function updateEquipment(equipId, d) {
+    requireUser(); d = d || {};
+    const eid = tidy(equipId, 40);
+    const ref = col('equipment').doc(eid);
+    const cur = await ref.get();
+    if (!cur.exists) fail('기구를 찾을 수 없습니다.');
+    const oldName = cur.data().name;
+    const newName = tidy(d.name, 60); if (!newName) fail('기구 이름을 입력해 주세요.');
+    const part = BODY_PARTS.indexOf(tidy(d.part)) >= 0 ? d.part : cur.data().part;
+    const patch = { name: newName, part };
+    if (d.photo) {
+      const saved = await uploadPhoto('기구', d.photo, '기구_' + newName);
+      patch.photoUrl = saved.url || ''; patch.photoThumb = saved.thumb || '';
+      const oldId = fileIdOf_(cur.data().photoUrl); if (oldId) deleteDrive_([oldId]);
+    }
+    await ref.update(patch);
+    if (oldName !== newName) {
+      const wts = await col('weights').where('equip', '==', oldName).get().then((s) => s.docs);
+      await commitInChunks_(wts, (b, d2) => b.update(d2.ref, { equip: newName }));
+    }
+    return { ok: true, gear: await listGear() };
+  }
+
+  /* ---------- 동작 수정 (이름·링크·사진) + 과거 기록 이름 일괄변경 ---------- */
+  async function updateMove(moveId, d) {
+    requireUser(); d = d || {};
+    const mid = tidy(moveId, 40);
+    const ref = col('moves').doc(mid);
+    const cur = await ref.get();
+    if (!cur.exists) fail('동작을 찾을 수 없습니다.');
+    const oldName = cur.data().name;
+    const newName = tidy(d.name, 60); if (!newName) fail('동작 이름을 입력해 주세요.');
+    const patch = { name: newName, link: tidy(d.link, 300) };
+    if (d.photo) {
+      const saved = await uploadPhoto('동작', d.photo, '동작_' + newName);
+      patch.photoUrl = saved.url || ''; patch.photoThumb = saved.thumb || '';
+      const oldId = fileIdOf_(cur.data().photoUrl); if (oldId) deleteDrive_([oldId]);
+    }
+    await ref.update(patch);
+    if (oldName !== newName) {
+      const wts = await col('weights').where('move', '==', oldName).get().then((s) => s.docs);
+      await commitInChunks_(wts, (b, d2) => b.update(d2.ref, { move: newName }));
+    }
+    return { ok: true, gear: await listGear() };
+  }
+
+  /* batch 500개 제한 → 나눠서 커밋 */
+  async function commitInChunks_(docs, apply) {
+    for (let i = 0; i < docs.length; i += 400) {
+      const b = db.batch();
+      docs.slice(i, i + 400).forEach((d) => apply(b, d));
+      await b.commit();
+    }
+  }
+  /* 드라이브 사진 삭제 요청 (비동기, 실패 무시) */
+  function deleteDrive_(fileIds) {
+    try {
+      const url = String((window.APP_CONFIG || {}).APPS_SCRIPT_URL || '').trim();
+      auth.currentUser.getIdToken().then((idToken) => {
+        fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ op: 'delete', idToken, fileIds }) });
+      });
+    } catch (e) {}
   }
 
   /* ---------- 세션 + 항목별 저장 ---------- */
@@ -423,7 +489,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, listMySessions, deleteSessions };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, listMySessions, deleteSessions };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));

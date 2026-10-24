@@ -742,7 +742,7 @@ function wrapText(ctx, text, x, bottomY, maxW, lineH, maxLines){
 /* ====================================================================
  * 사진 선택 (기구/동작 사진 · 버튼 1개 → 촬영/앨범 시트)
  * ==================================================================== */
-var PHOTO_KEYS = ['eq','mv'];
+var PHOTO_KEYS = ['eq','mv','eqedit','mvedit'];
 function photoPicker(key, label){
   return '<div class="picker" id="pick_' + key + '">'
     + '<div class="picklabel">' + esc(label) + '</div>'
@@ -797,7 +797,7 @@ function renderEquip(){
   call('listGear').then(function(list){
     GEAR = list || [];
     var cards = GEAR.length ? GEAR.map(function(e){
-      var moves = (e.moves||[]).map(function(m){ return '<span class="movetag">' + esc(m.name) + '</span>'; }).join('');
+      var moves = (e.moves||[]).map(function(m,mi){ return '<button class="movetag edit" onclick="openMoveEdit(\'' + e.id + '\',' + mi + ')">' + esc(m.name) + ' ✏</button>'; }).join('');
       return '<div class="eqrow">'
         + '<div style="display:flex;gap:12px;align-items:center">'
         +   (e.thumb ? '<img src="' + esc(e.thumb) + '" class="eqimg">' : '<div class="eqimg eqnoimg"><i data-lucide="dumbbell"></i></div>')
@@ -806,7 +806,8 @@ function renderEquip(){
         + (moves ? '<div class="movetags">' + moves + '</div>' : '<p class="muted" style="margin:8px 0 0">동작이 없어요.</p>')
         + '<div class="row" style="gap:8px;margin-top:8px">'
         +   '<button class="softbtn" style="margin:0;flex:1" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
-        +   '<button class="softbtn del" style="margin:0;flex:0 0 auto" onclick="delEquip(\'' + e.id + '\',\'' + esc(e.name) + '\')">🗑 삭제</button>'
+        +   '<button class="softbtn" style="margin:0;flex:0 0 auto" onclick="openEquipEdit(\'' + e.id + '\')">✏ 수정</button>'
+        +   '<button class="softbtn del" style="margin:0;flex:0 0 auto" onclick="delEquip(\'' + e.id + '\',\'' + esc(e.name) + '\')">🗑</button>'
         + '</div>'
         + '</div>';
     }).join('') : '<p class="muted">아직 등록된 기구가 없어요. 위에서 추가해 보세요.</p>';
@@ -861,6 +862,67 @@ function openMoveForm(equipId){
   wirePhotoButtons();
 }
 function closeMoveForm(){ var sh=$('moveModal'); if(sh) sh.classList.remove('on'); PHOTOBUF.mv=null; }
+/* 기구 수정 모달 (이름·부위·사진) */
+var EDIT_EQ_PART = '';
+function openEquipEdit(id){
+  var e = GEAR.filter(function(x){return x.id===id;})[0]; if(!e) return;
+  EDIT_EQ_PART = e.part; PHOTOBUF.eqedit = null;
+  var sh=$('eqEditModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='eqEditModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeEqEdit()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>✏ 기구 수정</b><button class="xbtn" onclick="closeEqEdit()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     '<div class="field"><label>기구 이름</label><input id="eqEditName" value="' + esc(e.name) + '"></div>'
+    +     '<div class="field"><label>부위</label><div class="wchips" id="eqEditChips">' + PARTS.map(function(p){return '<button class="wchip' + (p===e.part?' on':'') + '" onclick="pickEqEditPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';}).join('') + '</div></div>'
+    +     (e.thumb ? '<img src="' + esc(e.thumb) + '" style="width:80px;height:80px;object-fit:cover;border-radius:12px;border:1px solid var(--line);margin-bottom:4px">' : '')
+    +     photoPicker('eqedit', '사진 바꾸기(선택)')
+    +     '<button class="button accent" style="width:100%;margin-top:10px" onclick="submitEqEdit(\'' + e.id + '\')">저장</button>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on'); wirePhotoButtons(); icons();
+}
+function closeEqEdit(){ var sh=$('eqEditModal'); if(sh) sh.classList.remove('on'); PHOTOBUF.eqedit=null; }
+function pickEqEditPart(p){ EDIT_EQ_PART=p; Array.prototype.forEach.call(document.querySelectorAll('#eqEditChips .wchip'), function(b){ b.classList.toggle('on', b.textContent===p); }); }
+function submitEqEdit(id){
+  var name=($('eqEditName').value||'').trim(); if(!name){ toast('기구 이름을 입력해 주세요.'); return; }
+  cover(true,'저장 중…');
+  call('updateEquipment', id, { name:name, part:EDIT_EQ_PART, photo:PHOTOBUF.eqedit||null })
+    .then(function(r){ cover(false); toast('기구를 수정했어요.'); GEAR=r.gear||[]; PHOTOBUF.eqedit=null; closeEqEdit(); renderEquip(); })
+    .catch(function(e){ cover(false); toast('수정 실패: ' + (e&&e.message||e)); });
+}
+
+/* 동작 수정 모달 (이름·링크·사진) */
+function openMoveEdit(equipId, mi){
+  var e = GEAR.filter(function(x){return x.id===equipId;})[0]; if(!e) return;
+  var m = (e.moves||[])[mi]; if(!m) return;
+  PHOTOBUF.mvedit = null;
+  var sh=$('mvEditModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='mvEditModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeMvEdit()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>✏ 동작 수정</b><button class="xbtn" onclick="closeMvEdit()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     '<div class="field"><label>동작 이름</label><input id="mvEditName" value="' + esc(m.name) + '"></div>'
+    +     '<div class="field"><label>운동법 유튜브 링크</label><input id="mvEditLink" type="url" inputmode="url" value="' + esc(m.link||'') + '" placeholder="유튜브 숏츠 링크"></div>'
+    +     (m.thumb ? '<img src="' + esc(m.thumb) + '" style="width:80px;height:80px;object-fit:cover;border-radius:12px;border:1px solid var(--line);margin-bottom:4px">' : '')
+    +     photoPicker('mvedit', '사진 바꾸기(선택)')
+    +     '<button class="button accent" style="width:100%;margin-top:10px" onclick="submitMvEdit(\'' + m.id + '\')">저장</button>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on'); wirePhotoButtons(); icons();
+}
+function closeMvEdit(){ var sh=$('mvEditModal'); if(sh) sh.classList.remove('on'); PHOTOBUF.mvedit=null; }
+function submitMvEdit(id){
+  var name=($('mvEditName').value||'').trim(); if(!name){ toast('동작 이름을 입력해 주세요.'); return; }
+  cover(true,'저장 중…');
+  call('updateMove', id, { name:name, link:$('mvEditLink').value, photo:PHOTOBUF.mvedit||null })
+    .then(function(r){ cover(false); toast('동작을 수정했어요.'); GEAR=r.gear||[]; PHOTOBUF.mvedit=null; closeMvEdit(); renderEquip(); })
+    .catch(function(e){ cover(false); toast('수정 실패: ' + (e&&e.message||e)); });
+}
+
 /* 기구 삭제 (그 기구의 동작·사진까지) */
 function delEquip(id, name){
   if(!confirm('"' + name + '" 기구를 삭제할까요?\n이 기구의 동작과 사진도 함께 지워져요. (이미 기록된 운동 기록은 그대로 남아요)')) return;

@@ -373,3 +373,7 @@ select{-webkit-appearance:none;appearance:none;
 .lc-list li svg{width:20px;height:20px;flex-shrink:0}
 .lc-list li.done svg{color:var(--ok)}
 .lc-p{font-size:14px;font-weight:800;color:var(--main);min-width:42px;text-align:right}
+
+/* 수정 가능한 동작 태그 (버튼형) */
+.movetag.edit{cursor:pointer;font:inherit;font-size:12px}
+.movetag.edit:hover{background:rgba(198,244,50,.2)}
