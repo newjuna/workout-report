@@ -798,40 +798,49 @@ function renderEquip(){
   $('equip').innerHTML = '<div class="card"><p class="muted">불러오는 중…</p></div>';
   call('listGear').then(function(list){
     GEAR = list || [];
-    var cards = GEAR.length ? GEAR.map(function(e){
-      var moves = (e.moves||[]).map(function(m,mi){ return '<button class="movetag edit" onclick="openMoveEdit(\'' + e.id + '\',' + mi + ')">' + esc(m.name) + ' ✏</button>'; }).join('');
-      return '<div class="eqrow">'
-        + '<div style="display:flex;gap:12px;align-items:center">'
-        +   (e.thumb ? '<img src="' + esc(e.thumb) + '" class="eqimg">' : '<div class="eqimg eqnoimg"><i data-lucide="dumbbell"></i></div>')
-        +   '<div style="flex:1"><b>' + esc(e.name) + '</b><br><span class="muted">' + esc(e.part) + ' · 동작 ' + (e.moves||[]).length + '개</span></div>'
-        + '</div>'
-        + (moves ? '<div class="movetags">' + moves + '</div>' : '<p class="muted" style="margin:8px 0 0">동작이 없어요.</p>')
-        + '<div class="row" style="gap:8px;margin-top:8px">'
-        +   '<button class="softbtn" style="margin:0;flex:1" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
-        +   '<button class="softbtn" style="margin:0;flex:0 0 auto" onclick="openEquipEdit(\'' + e.id + '\')">✏ 수정</button>'
-        +   '<button class="softbtn del" style="margin:0;flex:0 0 auto" onclick="delEquip(\'' + e.id + '\',\'' + esc(e.name) + '\')">🗑</button>'
-        + '</div>'
-        + '</div>';
-    }).join('') : '<p class="muted">아직 등록된 기구가 없어요. 위에서 추가해 보세요.</p>';
+    if(PARTS.indexOf(EQ_PART) < 0) EQ_PART = PARTS[0] || '';   // 고른 부위 유지 (등록·수정 후에도)
 
     $('equip').innerHTML =
       '<div class="card"><h2>기구 등록</h2>'
       + '<div class="field"><label>기구 이름</label><input id="eqName" placeholder="예: 벤치프레스"></div>'
-      + '<div class="field"><label>부위</label><div class="wchips" id="eqPartChips">' + PARTS.map(function(p,i){return '<button class="wchip' + (i===0?' on':'') + '" onclick="pickEqPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';}).join('') + '</div></div>'
+      + '<div class="field"><label>부위</label><div class="wchips" id="eqPartChips">' + PARTS.map(function(p){return '<button class="wchip' + (p===EQ_PART?' on':'') + '" onclick="pickEqPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';}).join('') + '</div></div>'
       + photoPicker('eq', '기구 사진(선택)')
       + '<button class="button accent" style="width:100%;margin-top:10px" onclick="submitEquip(event)">기구 추가</button>'
       + '</div>'
-      + '<details class="eqfold"><summary>등록된 기구 ' + GEAR.length + '개 <span class="foldcaret">▾</span></summary>'
-      +   '<div class="eqlist">' + cards + '</div>'
+      + '<details class="eqfold" id="eqFold"><summary id="eqFoldSum"></summary>'
+      +   '<div class="eqlist" id="eqList"></div>'
       + '</details>';
-    EQ_PART = PARTS[0] || '';
+    renderEquipList();
     wirePhotoButtons();
-    if(window.lucide) lucide.createIcons();
   }).catch(function(e){ $('equip').innerHTML = '<div class="card"><p class="muted">오류: ' + esc(e&&e.message||e) + '</p></div>'; });
+}
+/* 고른 부위의 기구만 목록에 표시 */
+function renderEquipList(){
+  var list = GEAR.filter(function(e){ return e.part === EQ_PART; });
+  var sum = $('eqFoldSum'), box = $('eqList'); if(!sum || !box) return;
+  sum.innerHTML = esc(EQ_PART) + ' 기구 ' + list.length + '개 <span class="foldcaret">▾</span>';
+  box.innerHTML = list.length ? list.map(function(e){
+    var moves = (e.moves||[]).map(function(m,mi){ return '<button class="movetag edit" onclick="openMoveEdit(\'' + e.id + '\',' + mi + ')">' + esc(m.name) + ' ✏</button>'; }).join('');
+    return '<div class="eqrow">'
+      + '<div style="display:flex;gap:12px;align-items:center">'
+      +   (e.thumb ? '<img src="' + esc(e.thumb) + '" class="eqimg">' : '<div class="eqimg eqnoimg"><i data-lucide="dumbbell"></i></div>')
+      +   '<div style="flex:1"><b>' + esc(e.name) + '</b><br><span class="muted">' + esc(e.part) + ' · 동작 ' + (e.moves||[]).length + '개</span></div>'
+      + '</div>'
+      + (moves ? '<div class="movetags">' + moves + '</div><p class="muted" style="margin:6px 0 0;font-size:12px">동작을 누르면 이름·유튜브 링크·사진을 고칠 수 있어요.</p>' : '<p class="muted" style="margin:8px 0 0">동작이 없어요.</p>')
+      + '<div class="row" style="gap:8px;margin-top:8px">'
+      +   '<button class="softbtn" style="margin:0;flex:1" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
+      +   '<button class="softbtn" style="margin:0;flex:0 0 auto" onclick="openEquipEdit(\'' + e.id + '\')">✏ 수정</button>'
+      +   '<button class="softbtn del" style="margin:0;flex:0 0 auto" onclick="delEquip(\'' + e.id + '\',\'' + esc(e.name) + '\')">🗑 삭제</button>'
+      + '</div>'
+      + '</div>';
+  }).join('') : '<p class="muted" style="padding:12px 0">' + esc(EQ_PART) + ' 기구가 아직 없어요. 위에서 추가해 보세요.</p>';
+  icons();
 }
 var EQ_PART = '';
 function pickEqPart(p){ EQ_PART = p;
   Array.prototype.forEach.call(document.querySelectorAll('#eqPartChips .wchip'), function(b){ b.classList.toggle('on', b.textContent===p); });
+  renderEquipList();
+  var f=$('eqFold'); if(f) f.open = true;   // 부위 누르면 그 부위 목록 펼침
 }
 function submitEquip(ev){
   var name = $('eqName').value.trim();
