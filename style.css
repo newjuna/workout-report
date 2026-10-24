@@ -272,7 +272,9 @@ select{-webkit-appearance:none;appearance:none;
 
 /* ===== 세트 입력 폼 헤더 ===== */
 .drafthead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:16px}
-.drafthead .linkback{margin-left:auto;padding:0}
+.drafthead .howto{margin-left:auto;border:1px solid rgba(255,90,95,.4);background:rgba(255,90,95,.1);color:#ff5a5f;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.drafthead .howto:hover{background:rgba(255,90,95,.18)}
+.drafthead .linkback{padding:0}
 
 @media(max-width:380px){.grid-cards{grid-template-columns:1fr}}
 

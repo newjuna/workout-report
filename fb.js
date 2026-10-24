@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF2.4';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF2.5';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -83,7 +83,7 @@
     ]);
     return eqs.map((e) => ({
       id: e.id, name: e.name, part: e.part, thumb: e.photoThumb || '', owner: e.owner,
-      moves: mvs.filter((m) => m.equipId === e.id).map((m) => ({ id: m.id, name: m.name, desc: m.desc, thumb: m.photoThumb || '' })),
+      moves: mvs.filter((m) => m.equipId === e.id).map((m) => ({ id: m.id, name: m.name, desc: m.desc, link: m.link || '', thumb: m.photoThumb || '' })),
     }));
   }
   async function addEquipment(d) {
@@ -106,7 +106,7 @@
     const name = tidy(m.name, 60); if (!name) fail('동작 이름을 입력해 주세요.');
     let photo = { url: '', thumb: '' };
     if (m.photo) photo = await uploadPhoto('동작', m.photo, '동작_' + name);
-    await col('moves').add({ equipId, name, desc: tidy(m.desc, 300), photoUrl: photo.url || '', photoThumb: photo.thumb || '', owner: u.name, uid: u.uid, createdAt: now() });
+    await col('moves').add({ equipId, name, link: tidy(m.link, 300), desc: tidy(m.desc, 300), photoUrl: photo.url || '', photoThumb: photo.thumb || '', owner: u.name, uid: u.uid, createdAt: now() });
   }
 
   /* ---------- 기구 삭제 (기구 + 그 동작들 + 사진까지) ---------- */

@@ -573,7 +573,7 @@ function pickMoveStep(i){ setDraft(PICK_EQUIP, PICK_EQUIP.moves[i]); }
 function pickMoveNone(){ setDraft(PICK_EQUIP, null); }
 function setDraft(equip, move){
   DRAFT = { equipId:equip.id, equipName:equip.name, part:equip.part,
-            moveName: move ? move.name : '', moveDesc: move ? move.desc : '', sets:[{weight:'',reps:''}] };
+            moveName: move ? move.name : '', moveLink: move ? (move.link||'') : '', sets:[{weight:'',reps:''}] };
   closePicker(); OPEN='weight'; renderLogView();
 }
 function weightFormHtml(){
@@ -590,9 +590,9 @@ function weightFormHtml(){
     + '<div class="drafthead">'
     +   '<b>' + esc(DRAFT.equipName) + '</b>'
     +   (DRAFT.moveName ? ' <span class="chip">' + esc(DRAFT.moveName) + '</span>' : '')
+    +   '<button class="howto" onclick="openHowto()">▶ 운동법 보기</button>'
     +   '<button class="linkback" onclick="openWeight()">바꾸기</button>'
     + '</div>'
-    + (DRAFT.moveDesc ? '<p class="muted" style="margin:6px 0 2px">💡 ' + esc(DRAFT.moveDesc) + '</p>' : '')
     + '<div style="margin-top:8px">' + setsHtml + '</div>'
     + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
     + '<div class="row" style="margin-top:10px">'
@@ -612,6 +612,13 @@ function confirmWeight(){
   DRAFT=null; OPEN=''; renderLogView();
 }
 function openForm(kind){ OPEN=kind; renderLogView(); }
+/* 운동법 보기 — 유튜브 링크 새 탭 (없으면 안내) */
+function openHowto(){
+  var link = DRAFT && DRAFT.moveLink ? String(DRAFT.moveLink).trim() : '';
+  if(!link){ toast('아직 운동법 링크가 없습니다.'); return; }
+  if(!/^https?:\/\//i.test(link)) link = 'https://' + link;
+  window.open(link, '_blank');
+}
 
 /* ====================================================================
  * 운동 완료 — 전체를 서버로 일괄 제출 (여기서만 업로드)
@@ -807,23 +814,28 @@ function renderEquip(){
     $('equip').innerHTML =
       '<div class="card"><h2>기구 등록</h2>'
       + '<div class="field"><label>기구 이름</label><input id="eqName" placeholder="예: 벤치프레스"></div>'
-      + '<div class="field"><label>부위</label><select id="eqPart" class="bigsel">' + PARTS.map(function(p){return '<option>'+esc(p)+'</option>';}).join('') + '</select></div>'
+      + '<div class="field"><label>부위</label><div class="wchips" id="eqPartChips">' + PARTS.map(function(p,i){return '<button class="wchip' + (i===0?' on':'') + '" onclick="pickEqPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';}).join('') + '</div></div>'
       + photoPicker('eq', '기구 사진(선택)')
       + '<button class="button accent" style="width:100%;margin-top:10px" onclick="submitEquip(event)">기구 추가</button>'
       + '</div>'
       + '<details class="eqfold"><summary>등록된 기구 ' + GEAR.length + '개 <span class="foldcaret">▾</span></summary>'
       +   '<div class="eqlist">' + cards + '</div>'
       + '</details>';
+    EQ_PART = PARTS[0] || '';
     wirePhotoButtons();
     if(window.lucide) lucide.createIcons();
   }).catch(function(e){ $('equip').innerHTML = '<div class="card"><p class="muted">오류: ' + esc(e&&e.message||e) + '</p></div>'; });
+}
+var EQ_PART = '';
+function pickEqPart(p){ EQ_PART = p;
+  Array.prototype.forEach.call(document.querySelectorAll('#eqPartChips .wchip'), function(b){ b.classList.toggle('on', b.textContent===p); });
 }
 function submitEquip(ev){
   var name = $('eqName').value.trim();
   if(!name){ toast('기구 이름을 입력해 주세요.'); return; }
   var btn = ev && ev.target ? ev.target : null; busyBtn(btn,'등록 중…');
   cover(true, '등록 중…');
-  call('addEquipment', { name:name, part:$('eqPart').value, photo: PHOTOBUF.eq || null })
+  call('addEquipment', { name:name, part:EQ_PART||PARTS[0], photo: PHOTOBUF.eq || null })
     .then(function(r){ cover(false); toast('기구를 등록했어요 ✓'); GEAR = r.gear || []; PHOTOBUF.eq=null; renderEquip(); })
     .catch(function(e){ cover(false); unbusyBtn(btn); toast('등록 실패: ' + (e&&e.message||e)); });
 }
@@ -840,7 +852,7 @@ function openMoveForm(equipId){
     +   '<div class="modalhead"><b>' + esc(e.name) + ' · 동작 추가</b><button class="xbtn" onclick="closeMoveForm()">✕</button></div>'
     +   '<div class="modalbody">'
     +     '<div class="field"><label>동작 이름</label><input id="mvName" placeholder="예: 바벨 벤치프레스"></div>'
-    +     '<div class="field"><label>운동법 설명(선택)</label><textarea id="mvDesc" placeholder="어떻게 하는 동작인지 간단히"></textarea></div>'
+    +     '<div class="field"><label>운동법 유튜브 링크(선택)</label><input id="mvLink" type="url" inputmode="url" placeholder="유튜브 숏츠 링크 붙여넣기"></div>'
     +     photoPicker('mv', '동작 사진(선택)')
     +     '<button class="button accent" style="width:100%;margin-top:10px" onclick="submitMove(event)">동작 추가</button>'
     +   '</div>'
@@ -862,7 +874,7 @@ function submitMove(ev){
   if(!name){ toast('동작 이름을 입력해 주세요.'); return; }
   var btn = ev && ev.target ? ev.target : null; busyBtn(btn, '추가 중…');
   cover(true,'동작 추가 중…');
-  call('addMove', MOVE_EQUIP_ID, { name:name, desc:$('mvDesc').value, photo: PHOTOBUF.mv || null })
+  call('addMove', MOVE_EQUIP_ID, { name:name, link:$('mvLink').value, photo: PHOTOBUF.mv || null })
     .then(function(r){ cover(false); toast('동작을 추가했어요 ✓'); GEAR = r.gear || []; PHOTOBUF.mv=null; closeMoveForm(); renderEquip(); })
     .catch(function(e){ cover(false); unbusyBtn(btn); toast('추가 실패: ' + (e&&e.message||e)); });
 }
