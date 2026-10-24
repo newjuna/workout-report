@@ -11,7 +11,7 @@ window.FIREBASE_CONFIG = {
 // 사진을 구글 드라이브에 저장하는 중계 Apps Script 주소 (/exec)
 // → 사진 중계 Apps Script를 배포한 뒤, 거기서 받은 웹앱 URL을 여기에 붙여넣으세요.
 window.APP_CONFIG = {
-  APPS_SCRIPT_URL: ''   // 예: 'https://script.google.com/macros/s/XXXX/exec'
+  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbzNY4OgF3pq4oGW1RPNa4vlsxEkzcu4nXw_hcMEcVFybLdQIYz_BgZ2gjtotzl9j_rB/exec'   // 예: 'https://script.google.com/macros/s/XXXX/exec'
 };
 
 // 이 앱을 쓸 수 있는 사람 (구글 이메일 → 표시 이름)
