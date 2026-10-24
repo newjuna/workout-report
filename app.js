@@ -294,18 +294,13 @@ function openFeedPhoto(i){
   var f = FEED[i]; if(!f || !f.hasPhoto) return;
   openMediaLightbox(f);
 }
-/* 사진/영상 확대 보기 (영상은 드라이브 preview iframe) */
+/* 사진 확대 보기 (앱 안에서만 표시) */
 function openMediaLightbox(f){
   var sh = $('feedModal');
   if(!sh){ sh=document.createElement('div'); sh.id='feedModal'; sh.className='lightbox'; document.body.appendChild(sh); }
-  var inner;
-  if(f.type==='video' && f.url){
-    var prev = drivePreview(f.url);
-    inner = '<div class="lb-video"><iframe src="' + esc(prev) + '" allow="autoplay" allowfullscreen frameborder="0"></iframe></div>';
-  } else {
-    var big = String(f.thumb||'').indexOf('data:')===0 ? f.thumb : String(f.thumb||'').replace(/sz=w\d+/, 'sz=w1000');
-    inner = '<img src="' + esc(big) + '" class="lb-img">';
-  }
+  // 사진만 이미지로 보여줌 (드라이브 페이지로 이동하는 링크·창 없음)
+  var big = String(f.thumb||'').indexOf('data:')===0 ? f.thumb : String(f.thumb||'').replace(/sz=w\d+/, 'sz=w1000');
+  var inner = big ? '<img src="' + esc(big) + '" class="lb-img">' : '<p class="muted" style="text-align:center">사진이 없어요.</p>';
   sh.innerHTML =
     '<div class="lb-bg" onclick="closeFeedPhoto()"></div>'
     + '<div class="lb-inner">'
@@ -314,11 +309,6 @@ function openMediaLightbox(f){
     +   '<div class="lb-cap"><b>' + esc(f.who) + '</b> · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</div>'
     + '</div>';
   sh.classList.add('on');
-}
-/* 드라이브 보기 URL → preview(iframe 재생용) */
-function drivePreview(url){
-  var m = /\/d\/([A-Za-z0-9_-]+)/.exec(String(url||''));
-  return m ? 'https://drive.google.com/file/d/' + m[1] + '/preview' : url;
 }
 function closeFeedPhoto(){ var sh=$('feedModal'); if(sh){ sh.classList.remove('on'); sh.innerHTML=''; } }
 
