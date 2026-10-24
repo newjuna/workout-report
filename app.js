@@ -797,7 +797,10 @@ function renderEquip(){
         +   '<div style="flex:1"><b>' + esc(e.name) + '</b><br><span class="muted">' + esc(e.part) + ' · 동작 ' + (e.moves||[]).length + '개</span></div>'
         + '</div>'
         + (moves ? '<div class="movetags">' + moves + '</div>' : '<p class="muted" style="margin:8px 0 0">동작이 없어요.</p>')
-        + '<button class="softbtn" style="margin-top:8px" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
+        + '<div class="row" style="gap:8px;margin-top:8px">'
+        +   '<button class="softbtn" style="margin:0;flex:1" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
+        +   '<button class="softbtn del" style="margin:0;flex:0 0 auto" onclick="delEquip(\'' + e.id + '\',\'' + esc(e.name) + '\')">🗑 삭제</button>'
+        + '</div>'
         + '</div>';
     }).join('') : '<p class="muted">아직 등록된 기구가 없어요. 위에서 추가해 보세요.</p>';
 
@@ -846,6 +849,14 @@ function openMoveForm(equipId){
   wirePhotoButtons();
 }
 function closeMoveForm(){ var sh=$('moveModal'); if(sh) sh.classList.remove('on'); PHOTOBUF.mv=null; }
+/* 기구 삭제 (그 기구의 동작·사진까지) */
+function delEquip(id, name){
+  if(!confirm('"' + name + '" 기구를 삭제할까요?\n이 기구의 동작과 사진도 함께 지워져요. (이미 기록된 운동 기록은 그대로 남아요)')) return;
+  cover(true, '삭제 중…');
+  call('deleteEquipment', id).then(function(r){
+    cover(false); toast('기구를 삭제했어요.'); GEAR = r.gear || []; renderEquip();
+  }).catch(function(e){ cover(false); toast('삭제 실패: ' + (e&&e.message||e)); });
+}
 function submitMove(ev){
   var name = ($('mvName').value||'').trim();
   if(!name){ toast('동작 이름을 입력해 주세요.'); return; }

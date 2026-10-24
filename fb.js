@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF2.3';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF2.4';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -54,7 +54,7 @@
   function requireUser() { if (!USER) fail('로그인이 필요합니다.'); return USER; }
 
   /* ---------- 파일 중계 (Apps Script → 구글 드라이브) ---------- */
-  async function uploadMedia(kind, media) {
+  async function uploadMedia(kind, media, fname) {
     const u = requireUser();
     const url = String((window.APP_CONFIG || {}).APPS_SCRIPT_URL || '').trim();
     if (!url) fail('저장 서버(Apps Script) 주소가 config.js에 없습니다.');
@@ -62,13 +62,13 @@
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ op: 'photo', idToken, kind, who: u.name, photo: media }),
+      body: JSON.stringify({ op: 'photo', idToken, kind, who: u.name, fname: fname || '', photo: media }),
     });
     const o = await r.json().catch(() => null);
     if (!o || !o.ok) fail((o && o.error) || '저장 실패');
     return o;   // { url, thumb }
   }
-  const uploadPhoto = (kind, photo) => uploadMedia(kind, photo);   // 기존 호출 호환
+  const uploadPhoto = (kind, photo, fname) => uploadMedia(kind, photo, fname);   // 기존 호출 호환
 
   /* ---------- Firestore 공통 ---------- */
   const col = (name) => db.collection(name);
@@ -91,7 +91,7 @@
     const name = tidy(d.name, 60); if (!name) fail('기구 이름을 입력해 주세요.');
     const part = BODY_PARTS.indexOf(tidy(d.part)) >= 0 ? d.part : '가슴';
     let photo = { url: '', thumb: '' };
-    if (d.photo) photo = await uploadPhoto('기구', d.photo);
+    if (d.photo) photo = await uploadPhoto('기구', d.photo, '기구_' + name);
     const ref = await col('equipment').add({ name, part, photoUrl: photo.url || '', photoThumb: photo.thumb || '', owner: u.name, uid: u.uid, createdAt: now() });
     if (Array.isArray(d.moves)) for (const m of d.moves) await addMove_(ref.id, m);
     return { ok: true, id: ref.id, gear: await listGear() };
@@ -105,8 +105,36 @@
     const u = USER;
     const name = tidy(m.name, 60); if (!name) fail('동작 이름을 입력해 주세요.');
     let photo = { url: '', thumb: '' };
-    if (m.photo) photo = await uploadPhoto('기구', m.photo);
+    if (m.photo) photo = await uploadPhoto('동작', m.photo, '동작_' + name);
     await col('moves').add({ equipId, name, desc: tidy(m.desc, 300), photoUrl: photo.url || '', photoThumb: photo.thumb || '', owner: u.name, uid: u.uid, createdAt: now() });
+  }
+
+  /* ---------- 기구 삭제 (기구 + 그 동작들 + 사진까지) ---------- */
+  async function deleteEquipment(equipId) {
+    requireUser();
+    const eid = tidy(equipId, 40);
+    const eqDoc = await col('equipment').doc(eid).get();
+    if (!eqDoc.exists) fail('기구를 찾을 수 없습니다.');
+    const moves = await col('moves').where('equipId', '==', eid).get().then((s) => s.docs);
+    // 드라이브에서 지울 사진 fileId 모으기 (기구 + 동작)
+    const fileIds = [];
+    const gid = fileIdOf_(eqDoc.data().photoUrl); if (gid) fileIds.push(gid);
+    moves.forEach((mv) => { const id = fileIdOf_(mv.data().photoUrl); if (id) fileIds.push(id); });
+    // Firestore 삭제 (기구 + 동작들)
+    const batch = db.batch();
+    batch.delete(eqDoc.ref);
+    moves.forEach((mv) => batch.delete(mv.ref));
+    await batch.commit();
+    // 드라이브 사진 삭제
+    if (fileIds.length) {
+      try {
+        const url = String((window.APP_CONFIG || {}).APPS_SCRIPT_URL || '').trim();
+        const idToken = await auth.currentUser.getIdToken();
+        await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ op: 'delete', idToken, fileIds }) });
+      } catch (e) {}
+    }
+    return { ok: true, gear: await listGear() };
   }
 
   /* ---------- 세션 + 항목별 저장 ---------- */
@@ -160,7 +188,7 @@
     const u = requireUser(); const s = await mySession_(tidy(sid, 40));
     media = media || {};
     if (!media.data) fail('사진을 선택해 주세요.');
-    const saved = await uploadMedia('오운완', media);
+    const saved = await uploadMedia('오운완', media, '오운완_' + u.name + '_' + s.date);
     await col('sessions').doc(s.id).update({
       finishPhoto: saved.url || '',
       finishThumb: saved.thumb || '',               // 드라이브 썸네일(폴백)
@@ -395,7 +423,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, listMySessions, deleteSessions };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, listMySessions, deleteSessions };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));

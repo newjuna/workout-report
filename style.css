@@ -233,6 +233,8 @@ select{-webkit-appearance:none;appearance:none;
 .eqfold[open] .foldcaret{transform:rotate(180deg)}
 .eqlist{padding:0 14px 14px}
 .eqrow{border-top:1px solid var(--line);padding:14px 0}
+.softbtn.del{color:var(--accent);border-color:rgba(255,90,95,.3);padding-left:16px;padding-right:16px}
+.softbtn.del:hover{border-color:var(--accent);color:var(--accent);background:rgba(255,90,95,.06)}
 
 /* ===== 운동일지 달력 ===== */
 .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:12px}
