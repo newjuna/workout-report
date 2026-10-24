@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF1.2';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF1.3';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체', '복근', '기타'];
 
@@ -220,6 +220,22 @@
     });
   }
 
+  /* ---------- 특정 날짜의 부부 오운완 (VS 콜라주용) ---------- */
+  async function dayFinish(date) {
+    requireUser();
+    const people = Object.values(USERS);
+    const d = String(date || '').slice(0, 10);
+    const ss = await col('sessions').where('date', '==', d).get().then(docsOf);
+    // 각 사람: 오운완 사진 세션 우선, 없으면 운동만 한 세션, 둘 다 없으면 쉼
+    return people.map((p) => {
+      const mine = ss.filter((s) => s.who === p);
+      const withPhoto = mine.find((s) => s.finishThumb);
+      if (withPhoto) return { who: p, state: 'photo', date: d, workout: withPhoto.workout || '', thumb: withPhoto.finishThumb, url: withPhoto.finishPhoto || withPhoto.finishThumb };
+      if (mine.length) return { who: p, state: 'nophoto', date: d, workout: (mine[0].workout || '') };  // 운동은 함(사진만 없음)
+      return { who: p, state: 'rest', date: d };   // 쉼
+    });
+  }
+
   /* ---------- 한 사람의 오운완 전체 목록 (날짜별 보기용) ---------- */
   async function finishHistory(who) {
     requireUser();
@@ -239,7 +255,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish, finishHistory };
+  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));

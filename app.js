@@ -1061,126 +1061,159 @@ function downloadShare(){
 }
 
 /* ====================================================================
- * 부부 VS 대결 카드 (홈 ⚔️ 대결) — 누가 이번 주 이겼나!
+ * 부부 오운완 콜라주 카드 (홈 ⚔️) — 어제 둘의 오운완을 한 장에
+ *  둘 다 했으면 사진 2장 / 한 명이 쉬면 그 칸은 놀리는 멘트
  * ==================================================================== */
-var VS_RANGE = 'week';
+var VS_DATE = '';     // 보고 있는 날짜 (기본: 어제)
+var VS_DATA = null;   // [{who,state,thumb,workout}, ...]
+function yesterdayStr(){ var d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+
 function openVersus(){
-  VS_RANGE = 'week';
-  var open = function(){
-    var sh = $('vsModal');
-    if(!sh){ sh=document.createElement('div'); sh.id='vsModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
-    sh.innerHTML =
-      '<div class="modalbg" onclick="closeVs()"></div>'
-      + '<div class="modalbox">'
-      +   '<div class="modalhead"><b>⚔️ 부부 운동 대결</b><button class="xbtn" onclick="closeVs()">✕</button></div>'
-      +   '<div class="modalbody">'
-      +     '<div class="seg" id="vsRange">' + vsRangeBtn('week','이번 주') + vsRangeBtn('month','이번 달') + vsRangeBtn('all','전체') + '</div>'
-      +     '<div class="sharepreview"><canvas id="vsCanvas"></canvas></div>'
-      +     '<button class="button accent" style="width:100%" onclick="downloadVs()">이미지로 저장</button>'
-      +     '<p class="muted" style="text-align:center;margin-top:8px">진 사람 놀리는 용도… 스토리 각 😈</p>'
-      +   '</div>'
-      + '</div>';
-    sh.classList.add('on');
-    renderVsCard();
-  };
-  if(TREND){ open(); }
-  else { cover(true,'불러오는 중…'); call('trendData').then(function(d){ cover(false); TREND=d||{running:[],weights:[],people:[]}; open(); }).catch(function(e){ cover(false); toast('오류: '+(e&&e.message||e)); }); }
+  VS_DATE = yesterdayStr();
+  loadVs();
 }
-function vsRangeBtn(v,label){ return '<button class="button ' + (VS_RANGE===v?'accent':'ghost') + '" style="flex:1" onclick="VS_RANGE=\'' + v + '\';refreshVsSeg();renderVsCard()">' + esc(label) + '</button>'; }
-function refreshVsSeg(){ var e=$('vsRange'); if(e) e.innerHTML = vsRangeBtn('week','이번 주')+vsRangeBtn('month','이번 달')+vsRangeBtn('all','전체'); }
+function loadVs(){
+  var sh = $('vsModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='vsModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeVs()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>👫 우리의 오운완</b><button class="xbtn" onclick="closeVs()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     '<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">'
+    +       '<button class="chipbtn" style="flex:none;padding:10px 14px" onclick="vsShift(-1)">‹ 전날</button>'
+    +       '<b id="vsDateLbl">' + esc(VS_DATE) + '</b>'
+    +       '<button class="chipbtn" style="flex:none;padding:10px 14px" onclick="vsShift(1)">다음날 ›</button>'
+    +     '</div>'
+    +     '<div class="sharepreview"><canvas id="vsCanvas"></canvas></div>'
+    +     '<button class="button accent" style="width:100%" onclick="downloadVs()">이미지로 저장</button>'
+    +     '<p class="muted" style="text-align:center;margin-top:8px">어제 둘의 오운완을 한 장으로! 스토리 각 📸</p>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on');
+  var lbl=$('vsDateLbl'); if(lbl) lbl.textContent=VS_DATE;
+  cover(true,'불러오는 중…');
+  call('dayFinish', VS_DATE).then(function(list){ cover(false); VS_DATA=list||[]; renderVsCard(); })
+    .catch(function(e){ cover(false); toast('오류: '+(e&&e.message||e)); });
+}
+function vsShift(delta){
+  var d=new Date(VS_DATE+'T00:00:00'); d.setDate(d.getDate()+delta);
+  var ns=d.toISOString().slice(0,10);
+  if(ns > new Date().toISOString().slice(0,10)) { toast('아직 오지 않은 날이에요'); return; }
+  VS_DATE=ns; var lbl=$('vsDateLbl'); if(lbl) lbl.textContent=VS_DATE;
+  cover(true,'불러오는 중…');
+  call('dayFinish', VS_DATE).then(function(list){ cover(false); VS_DATA=list||[]; renderVsCard(); })
+    .catch(function(e){ cover(false); toast('오류: '+(e&&e.message||e)); });
+}
 function closeVs(){ var sh=$('vsModal'); if(sh) sh.classList.remove('on'); }
 
-/* 사람별 지표 집계 */
-function vsStats(range){
-  var from = range==='week' ? weekAgo(7) : range==='month' ? weekAgo(30) : '0000';
-  var people = (TREND.people||[]).slice(0,2);
-  var runs = (TREND.running||[]).filter(function(r){ return ymd(r.date)>=from; });
-  var wts = (TREND.weights||[]).filter(function(w){ return ymd(w.date)>=from; });
-  return people.map(function(p){
-    var sess={}; runs.concat(wts).forEach(function(x){ if(x.who===p) sess[x.date]=1; });
-    var km=0; runs.forEach(function(r){ if(r.who===p) km+=Number(r.km)||0; });
-    var vol=0; wts.forEach(function(w){ if(w.who===p) vol+=(Number(w.weight)||0)*(Number(w.reps)||0); });
-    return { who:p, sessions:Object.keys(sess).length, km:Math.round(km*10)/10, volume:Math.round(vol) };
-  });
-}
+/* 쉰 사람 놀리는 멘트 (콜라주용) */
+var REST_MSGS = [
+  { emo:'😴', line:'어제 쉬었나봐요?' },
+  { emo:'🐷', line:'돼지런 하는 날' },
+  { emo:'🛋️', line:'소파와 한 몸' },
+  { emo:'🍗', line:'운동 대신 치킨?' },
+  { emo:'🦥', line:'게으름 챔피언' }
+];
 
 function renderVsCard(){
-  var cv=$('vsCanvas'); if(!cv) return;
+  var cv=$('vsCanvas'); if(!cv || !VS_DATA) return;
   var W=1080,H=1920; cv.width=W; cv.height=H;
   var ctx=cv.getContext('2d');
-  var st = vsStats(VS_RANGE);
-  var title = VS_RANGE==='week'?'이번 주':VS_RANGE==='month'?'이번 달':'전체';
-  var A = st[0] || {who:'남편',sessions:0,km:0,volume:0};
-  var B = st[1] || {who:'아내',sessions:0,km:0,volume:0};
+  var A = VS_DATA[0] || {who:'남편',state:'rest'};
+  var B = VS_DATA[1] || {who:'아내',state:'rest'};
 
   // 배경
   var g=ctx.createLinearGradient(0,0,W,H); g.addColorStop(0,'#13161d'); g.addColorStop(1,'#0c0e12');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  // 가운데 세로 분단선
-  ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=2;
-  ctx.beginPath(); ctx.moveTo(W/2,420); ctx.lineTo(W/2,H-360); ctx.stroke();
 
+  // 헤더
   ctx.textAlign='center';
   ctx.fillStyle='#c6f432'; ctx.font='800 40px "Gothic A1",sans-serif';
-  ctx.fillText('● 운동 레포트', W/2, 140);
-  ctx.fillStyle='#eef1f5'; ctx.font='900 96px "Gothic A1",sans-serif';
-  ctx.fillText(title + ' 대결 ⚔️', W/2, 260);
+  ctx.fillText('● 운동 레포트', W/2, 120);
+  ctx.fillStyle='#eef1f5'; ctx.font='900 82px "Gothic A1",sans-serif';
+  ctx.fillText('우리의 오운완 👫', W/2, 220);
+  ctx.fillStyle='#8a93a4'; ctx.font='600 36px "Gothic A1",sans-serif';
+  ctx.fillText(VS_DATE, W/2, 280);
 
-  // 두 사람 이름
-  var lx=W*0.26, rx=W*0.74;
-  ctx.font='800 64px "Gothic A1",sans-serif';
-  ctx.fillStyle='#c6f432'; ctx.fillText(A.who, lx, 400);
-  ctx.fillStyle='#49e39b'; ctx.fillText(B.who, rx, 400);
+  // 두 칸 영역 (위/아래)
+  var top=340, cellH=640, gap=40;
+  var cells=[{d:A, y:top}, {d:B, y:top+cellH+gap}];
+  var pending=0, finish=function(){ pending--; if(pending<=0) drawVerdict(); };
+  var margin=70, cw=W-margin*2;
 
-  // 지표 3개 대결
-  var metrics=[
-    { label:'운동 횟수', key:'sessions', unit:'회' },
-    { label:'총 볼륨', key:'volume', unit:'kg', fmt:true },
-    { label:'런닝 거리', key:'km', unit:'km' },
-  ];
-  var y=560, gap=380, winA=0, winB=0;
-  metrics.forEach(function(m){
-    var a=A[m.key]||0, b=B[m.key]||0;
-    var aw = a>b, bw = b>a;
-    if(aw) winA++; if(bw) winB++;
-    // 라벨 (가운데)
-    ctx.fillStyle='#8a93a4'; ctx.font='700 38px "Gothic A1",sans-serif';
-    ctx.fillText(m.label, W/2, y-10);
-    // 값
-    var av = m.fmt?fmt(a):String(a), bv = m.fmt?fmt(b):String(b);
-    ctx.font='900 110px "Gothic A1",sans-serif';
-    ctx.fillStyle = aw?'#c6f432':'#5b6472'; ctx.fillText(av, lx, y+110);
-    ctx.fillStyle = bw?'#49e39b':'#5b6472'; ctx.fillText(bv, rx, y+110);
-    // 단위
-    ctx.font='700 40px "Gothic A1",sans-serif';
-    ctx.fillStyle='#8a93a4'; ctx.fillText(m.unit, lx, y+160); ctx.fillText(m.unit, rx, y+160);
-    // 승자 왕관
-    ctx.font='60px "Gothic A1",sans-serif';
-    if(aw) ctx.fillText('👑', lx, y+40); if(bw) ctx.fillText('👑', rx, y+40);
-    y += gap;
+  function drawVerdict(){
+    var aOk=A.state!=='rest', bOk=B.state!=='rest';
+    var wy=H-130, msg;
+    if(aOk&&bOk) msg='오늘도 함께 💪❤️';
+    else if(aOk&&!bOk) msg='승자: ' + A.who + ' 👑  ·  ' + B.who + '은 쉼 😏';
+    else if(!aOk&&bOk) msg='승자: ' + B.who + ' 👑  ·  ' + A.who + '은 쉼 😏';
+    else msg='둘 다 쉰 날… 🛋️';
+    ctx.textAlign='center'; ctx.fillStyle='#eef1f5'; ctx.font='800 48px "Gothic A1",sans-serif';
+    ctx.fillText(msg, W/2, wy);
+    ctx.textAlign='left';
+  }
+
+  cells.forEach(function(c){
+    var x=margin, y=c.y, d=c.d, r=32;
+    // 칸 테두리/배경
+    roundRect(ctx, x, y, cw, cellH, r);
+    ctx.fillStyle='#1a1e27'; ctx.fill();
+    if(d.state==='photo' && d.thumb){
+      pending++;
+      var im=new Image(); im.crossOrigin='anonymous';
+      im.onload=function(){
+        ctx.save(); roundRect(ctx,x,y,cw,cellH,r); ctx.clip();
+        // cover
+        var ir=im.width/im.height, cr=cw/cellH, sw,sh2,sx,sy;
+        if(ir>cr){ sh2=im.height; sw=sh2*cr; sx=(im.width-sw)/2; sy=0; } else { sw=im.width; sh2=sw/cr; sx=0; sy=(im.height-sh2)/2; }
+        ctx.drawImage(im, sx,sy,sw,sh2, x,y,cw,cellH);
+        // 하단 그라데이션 + 이름
+        var gg=ctx.createLinearGradient(0,y+cellH-200,0,y+cellH); gg.addColorStop(0,'rgba(0,0,0,0)'); gg.addColorStop(1,'rgba(0,0,0,.75)');
+        ctx.fillStyle=gg; ctx.fillRect(x,y+cellH-200,cw,200);
+        ctx.fillStyle='#fff'; ctx.font='800 52px "Gothic A1",sans-serif'; ctx.textAlign='left';
+        ctx.fillText(d.who + (d.workout?'  ·  '+d.workout:''), x+34, y+cellH-40);
+        ctx.restore();
+        finish();
+      };
+      im.onerror=function(){ // 사진 못 불러오면 "완료" 칸으로
+        drawDoneCell(ctx,x,y,cw,cellH,d); finish();
+      };
+      im.src = String(d.thumb).replace(/sz=w\d+/, 'sz=w800');
+    } else if(d.state==='nophoto'){
+      drawDoneCell(ctx,x,y,cw,cellH,d);
+    } else {
+      // 쉼 → 놀리는 멘트
+      var m = REST_MSGS[Math.floor(Math.random()*REST_MSGS.length)];
+      ctx.textAlign='center';
+      ctx.font='140px "Gothic A1",sans-serif'; ctx.fillText(m.emo, x+cw/2, y+cellH/2-20);
+      ctx.fillStyle='#eef1f5'; ctx.font='800 54px "Gothic A1",sans-serif'; ctx.fillText(m.line, x+cw/2, y+cellH/2+90);
+      ctx.fillStyle='#8a93a4'; ctx.font='700 44px "Gothic A1",sans-serif'; ctx.fillText(d.who, x+cw/2, y+cellH-50);
+      ctx.textAlign='left';
+    }
   });
-
-  // 종합 승자
-  var wy=H-280;
-  ctx.font='800 50px "Gothic A1",sans-serif'; ctx.fillStyle='#eef1f5';
-  var verdict;
-  if(winA>winB) verdict = '🏆 승자: ' + A.who + '!';
-  else if(winB>winA) verdict = '🏆 승자: ' + B.who + '!';
-  else verdict = '🤝 무승부!';
-  ctx.fillText(verdict, W/2, wy);
-  ctx.font='600 36px "Gothic A1",sans-serif'; ctx.fillStyle='#9aa3b2';
-  var loser = winA>winB ? B.who : winB>winA ? A.who : null;
-  if(loser) ctx.fillText(loser + '님, 분발하세요 😏', W/2, wy+70);
-
-  ctx.fillStyle='#5b6472'; ctx.font='500 30px "Gothic A1",sans-serif';
-  ctx.fillText(new Date().toISOString().slice(0,10), W/2, H-110);
+  if(pending===0) drawVerdict();
+}
+/* 운동은 했지만 사진 없는 칸 */
+function drawDoneCell(ctx,x,y,cw,cellH,d){
+  ctx.textAlign='center';
+  ctx.font='130px "Gothic A1",sans-serif'; ctx.fillText('💪', x+cw/2, y+cellH/2-10);
+  ctx.fillStyle='#c6f432'; ctx.font='800 54px "Gothic A1",sans-serif'; ctx.fillText('운동 완료!', x+cw/2, y+cellH/2+80);
+  ctx.fillStyle='#8a93a4'; ctx.font='700 44px "Gothic A1",sans-serif'; ctx.fillText(d.who + (d.workout?'  ·  '+d.workout:''), x+cw/2, y+cellH-50);
   ctx.textAlign='left';
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
 function downloadVs(){
   var cv=$('vsCanvas'); if(!cv) return;
-  var a=document.createElement('a');
-  a.href=cv.toDataURL('image/jpeg',0.92);
-  a.download='부부대결_' + new Date().toISOString().slice(0,10) + '.jpg';
-  document.body.appendChild(a); a.click(); a.remove();
-  toast('대결 카드 저장! 진 사람 놀려주기 😈');
+  try{
+    var a=document.createElement('a');
+    a.href=cv.toDataURL('image/jpeg',0.92);
+    a.download='우리의오운완_' + VS_DATE + '.jpg';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('저장 완료! 스토리에 올려보세요 📸');
+  }catch(e){ toast('사진 보안 때문에 저장이 막혔어요. 캡처로 저장해 주세요.'); }
 }
