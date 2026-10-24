@@ -759,43 +759,74 @@ function drawCalendar(){
   icons();
 }
 
-/* 그날 상세 모달 */
+/* 그날 상세 모달 — 간단 요약 (자세히는 별도) */
+var DAY_LIST = [];
 function openDay(ds){
-  var list = LIST_SESS.filter(function(s){ return String(s.date).slice(0,10)===ds; });
+  DAY_LIST = LIST_SESS.filter(function(s){ return String(s.date).slice(0,10)===ds; });
   var sh = $('dayModal');
   if(!sh){ sh=document.createElement('div'); sh.id='dayModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
   sh.innerHTML =
     '<div class="modalbg" onclick="closeDay()"></div>'
     + '<div class="modalbox">'
-    +   '<div class="modalhead"><b>📋 ' + esc(ds) + '</b><button class="xbtn" onclick="closeDay()">✕</button></div>'
-    +   '<div class="modalbody">' + (list.length ? list.map(sessionDetail).join('') : '<p class="muted">기록이 없어요.</p>') + '</div>'
+    +   '<div class="modalhead"><b>' + ic('clipboard-list') + ' ' + esc(ds) + '</b><button class="xbtn" onclick="closeDay()">✕</button></div>'
+    +   '<div class="modalbody">' + (DAY_LIST.length ? DAY_LIST.map(sessionSummaryRow).join('') : '<p class="muted">기록이 없어요.</p>') + '</div>'
     + '</div>';
-  sh.classList.add('on');
+  sh.classList.add('on'); icons();
 }
 function closeDay(){ var sh=$('dayModal'); if(sh) sh.classList.remove('on'); }
 
-function sessionDetail(s){
+/* 요약 한 줄: 런닝 했는지 + 웨이트 기구 수 + 오운완 */
+function sessionSummaryRow(s, i){
+  var bits = [];
+  if((s.running||[]).length) bits.push(ic('footprints') + ' 런닝');
+  var nEquip = (s.weights||[]).length;
+  if(nEquip){
+    var first = s.weights[0].equip;
+    bits.push(ic('dumbbell') + ' ' + esc(first) + (nEquip>1 ? ' 외 ' + (nEquip-1) + '개' : ''));
+  }
+  if(s.finishThumb) bits.push(ic('camera') + ' 오운완');
+  var summary = bits.length ? bits.join('  ·  ') : '기록';
+  return '<div class="daysess">'
+    + '<div class="row" style="justify-content:space-between;align-items:center">'
+    +   '<b style="color:'+whoColor(s.who)+'">' + esc(s.who) + '</b>'
+    +   '<span class="muted">' + (s.workout ? esc(s.workout) : '') + '</span>'
+    + '</div>'
+    + '<div class="daysum">' + summary + '</div>'
+    + '<button class="softbtn" style="margin-top:10px" onclick="openSessionDetail(' + i + ')">자세히 보기</button>'
+    + '</div>';
+}
+
+/* 자세히 보기 — 세트별 전체 기록 */
+function openSessionDetail(i){
+  var s = DAY_LIST[i]; if(!s) return;
+  var sh = $('detailModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='detailModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
   var run = (s.running||[]).map(function(r){
     var parts = [];
     if(r.min!=='') parts.push(r.min+'분'); if(r.km!=='') parts.push(r.km+'km');
     if(r.incline!=='') parts.push('경사'+r.incline); if(r.speed!=='') parts.push(r.speed+'km/h'); if(r.kcal!=='') parts.push(r.kcal+'kcal');
-    return '<div class="muted" style="margin:2px 0">🏃 ' + esc(parts.join(' · ')) + '</div>';
+    return '<div class="muted" style="margin:3px 0">' + ic('footprints') + ' ' + esc(parts.join(' · ')) + '</div>';
   }).join('');
   var wt = (s.weights||[]).map(function(w){
-    var sets = (w.sets||[]).map(function(x){ return x.weight+'kg×'+x.reps; }).join(', ');
+    var rows = (w.sets||[]).map(function(x, si){
+      return '<div class="setline"><span>' + (si+1) + '세트</span><b>' + esc(x.weight) + 'kg × ' + esc(x.reps) + '회</b></div>';
+    }).join('');
     var mv = w.move ? ' · ' + esc(w.move) : '';
-    return '<div style="margin:3px 0">🏋 <b>' + esc(w.equip) + '</b>' + mv + ' <span class="muted">' + esc(sets) + '</span></div>';
+    return '<div class="detwt"><div class="detwt-h">' + ic('dumbbell') + ' <b>' + esc(w.equip) + '</b>' + mv + '</div>' + rows + '</div>';
   }).join('');
-  return '<div class="daysess">'
-    + '<div class="row" style="justify-content:space-between">'
-    +   '<b style="color:'+whoColor(s.who)+'">' + esc(s.who) + '</b>'
-    +   '<span class="muted">' + (s.workout ? esc(s.workout) : '') + '</span>'
-    + '</div>'
-    + (run || '')
-    + (wt ? '<div style="margin-top:6px">' + wt + '</div>' : '')
-    + (s.finishThumb ? '<img src="' + esc(s.finishThumb) + '" style="width:100%;max-width:240px;border-radius:12px;margin-top:8px">' : '')
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeDetail()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>' + esc(s.who) + ' · ' + esc(s.date) + (s.workout?' · '+esc(s.workout):'') + '</b><button class="xbtn" onclick="closeDetail()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     (run || '')
+    +     (wt || '')
+    +     (s.finishThumb ? '<img src="' + esc(s.finishThumb) + '" style="width:100%;border-radius:14px;margin-top:10px">' : '')
+    +   '</div>'
     + '</div>';
+  sh.classList.add('on'); icons();
 }
+function closeDetail(){ var sh=$('detailModal'); if(sh) sh.classList.remove('on'); }
 
 /* ====================================================================
  * 발전 추이 — 그래프 + 공유 카드

@@ -223,6 +223,15 @@ select{-webkit-appearance:none;appearance:none;
 .leg{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sub);font-weight:600}
 .daysess{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;background:var(--card2)}
 .daysess:last-child{margin-bottom:0}
+.daysum{font-size:14px;color:var(--text);margin-top:8px;display:flex;flex-wrap:wrap;gap:4px 2px;align-items:center}
+.daysum svg{color:var(--main)}
+/* 자세히 보기 */
+.detwt{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;background:var(--card2)}
+.detwt-h{font-size:15px;margin-bottom:6px}
+.setline{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.setline:first-of-type{border-top:0}
+.setline span{color:var(--sub);font-weight:600}
+.setline b{color:var(--text)}
 
 /* 기구별 내 기록 모달 행 */
 .eqlogrow{border-bottom:1px solid var(--line);padding:11px 0}

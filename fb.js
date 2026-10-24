@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF1.5';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF1.6';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -22,6 +22,8 @@
   const lower = (v) => String(v || '').trim().toLowerCase();
   const nameOf = (email) => USERS[lower(email)] || '';
   const now = () => new Date().toISOString();
+  // 로컬(기기) 기준 yyyy-MM-dd — toISOString(UTC)은 자정 근처에 하루 밀리므로 사용 금지
+  const localYmd = (d) => { const z = (n) => (n < 10 ? '0' : '') + n; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); };
   const tidy = (v, n) => String(v == null ? '' : v).trim().slice(0, n || 500);
   const num = (v) => { const s = String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''); return s === '' ? '' : Number(s); };
   const fail = (m) => { throw new Error(m); };
@@ -201,7 +203,7 @@
     const ss = await col('sessions').orderBy('date', 'desc').limit(60).get().then(docsOf);
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const yd = new Date(today); yd.setDate(yd.getDate() - 1);
-    const ymdOf = (d) => d.toISOString().slice(0, 10);
+    const ymdOf = localYmd;              // 한국 로컬 날짜 (UTC 밀림 방지)
     const yesterday = ymdOf(yd);
 
     return people.map((p) => {
