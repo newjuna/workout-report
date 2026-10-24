@@ -188,13 +188,30 @@ function renderHome(){
     +     '<button class="button accent" style="flex:2" onclick="switchTab(\'log\')">' + ic('plus') + ' 오늘 운동 시작</button>'
     +     '<button class="button ghost" style="flex:1" onclick="openVersus()">' + ic('swords') + ' 대결</button>'
     +   '</div>'
-    + '</div>';
-  // 피드는 비동기라 아래 renderFeed에서 icons() 호출
+    + '</div>'
+    + '<div class="card fbcard" id="fbCard"><div class="muted">지난 운동 분석 중…</div></div>';
   // 피드 로드
   call('latestFinish').then(function(list){
     FEED = list || [];
     renderFeed();
   }).catch(function(e){ var g=$('feedGrid'); if(g) g.innerHTML='<p class="muted">피드 오류: '+esc(e&&e.message||e)+'</p>'; });
+  // 비교 피드백 로드
+  call('lastFeedback').then(function(f){
+    var el=$('fbCard'); if(!el) return;
+    el.innerHTML = '<div class="fbhead">' + ic('sparkles') + ' 지난 운동 피드백</div><div class="fbline">' + feedbackText(f) + '</div>';
+    icons();
+  }).catch(function(){ var el=$('fbCard'); if(el) el.remove(); });
+}
+/* 핵심 수치만 라임 녹색(.hl)으로 강조한 피드백 문구 */
+function hl(v){ return '<span class="hl">' + esc(v) + '</span>'; }
+function feedbackText(f){
+  if(!f || f.type==='none') return '아직 기록이 없어요. 오늘 첫 운동을 남겨봐요 💪';
+  var w = f.workout ? f.workout + '날' : '지난 운동';
+  if(f.type==='first') return '첫 ' + esc(w) + ' 기록 완료! 런닝 ' + hl(f.km+'km') + ' · ' + hl(f.sets+'세트') + ' 💪';
+  if(f.type==='weight') return '지난 ' + esc(w) + '보다 ' + esc(f.equip) + ' ' + hl(f.inc+'kg') + ' 늘었어요! (지금 ' + hl(f.now+'kg') + ') 🔥';
+  if(f.type==='run') return '지난 ' + esc(w) + '보다 런닝 ' + hl(f.inc+'km') + ' 더 달렸어요! (' + hl(f.now+'km') + ') 👍';
+  if(f.type==='sets') return '지난 ' + esc(w) + '보다 ' + hl(f.inc+'세트') + ' 더 했어요! (총 ' + hl(f.now+'세트') + ') 💪';
+  return '지난 ' + esc(w) + '만큼 꾸준히 했어요! 이 페이스 유지해요 👏';
 }
 
 var FEED = [];
@@ -352,21 +369,28 @@ function renderLog(){
     renderLogView();
   });
 }
+var START_WORKOUT = '';
 function renderLogStart(){
   $('log').innerHTML =
     '<div class="card">'
     + '<h2>오늘 운동 시작</h2>'
     + '<div class="field"><label>날짜</label><input type="date" id="logDate" value="' + todayStr() + '"></div>'
-    + '<div class="field"><label>오늘의 운동</label><select id="logWorkout" class="bigsel">' + workoutOptions('') + '</select></div>'
+    + '<div class="field"><label>오늘의 운동</label><div class="wchips" id="wchips">'
+    +   WORKOUTS.map(function(w){ return '<button class="wchip' + (START_WORKOUT===w?' on':'') + '" onclick="pickWorkout(\'' + esc(w) + '\')">' + esc(w) + '</button>'; }).join('')
+    + '</div></div>'
     + '<button class="button accent" style="width:100%;margin-top:6px" onclick="doStartSession()">시작하기</button>'
     + '<p class="muted" style="margin-top:10px">입력하는 동안 자동으로 임시 저장돼요. 중간에 나갔다 와도 그대로 남아요. 마지막에 "운동 완료"를 눌러야 최종 저장됩니다.</p>'
     + '</div>';
 }
+function pickWorkout(w){ START_WORKOUT = (START_WORKOUT===w?'':w);
+  Array.prototype.forEach.call(document.querySelectorAll('#wchips .wchip'), function(b){ b.classList.toggle('on', b.textContent===START_WORKOUT); });
+}
 function doStartSession(){
-  var date = $('logDate').value, workout = $('logWorkout').value;
+  var date = $('logDate').value;
   if(!date){ toast('날짜를 선택해 주세요.'); return; }
-  LOG = { date:date, workout:workout, running:null, weights:[], fin:null, finText:'' };
-  DRAFT=null; OPEN=''; saveLog(); renderLogView();
+  if(!START_WORKOUT){ toast('오늘의 운동을 선택해 주세요.'); return; }
+  LOG = { date:date, workout:START_WORKOUT, running:null, weights:[], fin:null, finText:'' };
+  START_WORKOUT=''; DRAFT=null; OPEN=''; saveLog(); renderLogView();
 }
 
 function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); wireFinInputs(); icons(); }
@@ -1060,6 +1084,7 @@ function statBox(label, val){
 }
 function fmt(n){ n=Number(n)||0; return n>=1000 ? (Math.round(n/100)/10)+'k' : String(Math.round(n)); }
 function addComma(n){ return String(Math.round(Number(n)||0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function mdSlash(ymdStr){ var p=String(ymdStr||'').split('-'); return p.length>=3 ? (p[1]+'/'+p[2]) : String(ymdStr||''); }
 
 /* 기구/동작 키 목록 (무게 데이터 있는 것만) */
 function equipKeyList(weights){
@@ -1071,16 +1096,23 @@ function equipKeyList(weights){
 /* 기간 시작일 · range: 'today' | 'week' | 'month' | 'q' | 'all' */
 function statFrom(range){
   if(range==='today') return todayStr();
-  if(range==='week') return weekAgo(7);
-  if(range==='month') return weekAgo(30);
+  if(range==='week') return weekAgo(6);     // 오늘 포함 7일
+  if(range==='month') return weekAgo(29);   // 오늘 포함 30일
   if(range==='q') return weekAgo(90);
   return '0000';
 }
-/* 통계 집계 — 세트수/총무게를 상체·하체로 분리 */
-function computeStat(d, range){
-  var from = statFrom(range);
-  var runs = (d.running||[]).filter(function(r){ return ymd(r.date) >= from; });
-  var wts = (d.weights||[]).filter(function(w){ return ymd(w.date) >= from; });
+/* 범위 [from,to] 반환 (표시용). custom이면 지정값 사용 */
+function rangeBounds(range, customFrom, customTo){
+  var to = todayStr();
+  if(range==='custom'){ return { from: customFrom||to, to: customTo||to }; }
+  return { from: statFrom(range), to: to };
+}
+/* 통계 집계 — 세트수/총무게를 상체·하체로 분리. range='custom'이면 from2~to2 */
+function computeStat(d, range, from2, to2){
+  var b = rangeBounds(range, from2, to2);
+  var from = b.from, to = b.to;
+  var runs = (d.running||[]).filter(function(r){ var x=ymd(r.date); return x>=from && x<=to; });
+  var wts = (d.weights||[]).filter(function(w){ var x=ymd(w.date); return x>=from && x<=to; });
   var sess = {}; runs.concat(wts).forEach(function(x){ sess[x.date+'|'+x.who]=1; });
   var km = 0; runs.forEach(function(r){ km += Number(r.km)||0; });
   var kcal = 0; runs.forEach(function(r){ kcal += Number(r.kcal)||0; });
@@ -1099,7 +1131,7 @@ function computeStat(d, range){
   var totalSets = g['상체'].sets + g['하체'].sets;
   return { sessions:Object.keys(sess).length, km:Math.round(km*10)/10, kcal:Math.round(kcal),
     sets:totalSets, upper:{ sets:g['상체'].sets, kg:Math.round(g['상체'].kg) }, lower:{ sets:g['하체'].sets, kg:Math.round(g['하체'].kg) },
-    best:bestArr, byWho:byWho };
+    best:bestArr, byWho:byWho, from:from, to:to };
 }
 
 var CHART_FONT = { family:'Gothic A1', size:12, weight:'600' };
@@ -1177,10 +1209,12 @@ function weekStartOf(dateStr){ var d=new Date(dateStr+'T00:00:00'); d.setDate(d.
 /* ====================================================================
  * 공유 카드 (나이키 런닝 스타일 · 9:16 · 사진 위 통계)
  * ==================================================================== */
-var SHARE_RANGE = 'week';   // week | month | all
+var SHARE_RANGE = 'week';   // week | month | custom
 var SHARE_PHOTO = null;     // 배경 사진 base64 (선택)
+var SHARE_FROM = '', SHARE_TO = '';
 function openShare(){
   SHARE_RANGE='week'; SHARE_PHOTO=null;
+  SHARE_TO = todayStr(); SHARE_FROM = weekAgo(6);
   var sh = $('shareModal');
   if(!sh){ sh=document.createElement('div'); sh.id='shareModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
   sh.innerHTML =
@@ -1189,8 +1223,9 @@ function openShare(){
     +   '<div class="modalhead"><b>📤 운동 카드 공유</b><button class="xbtn" onclick="closeShare()">✕</button></div>'
     +   '<div class="modalbody">'
     +     '<div class="seg" id="shareRange">'
-    +       rangeBtn('today','오늘') + rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('all','전체')
+    +       rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('custom','기간 선택')
     +     '</div>'
+    +     '<div id="shareCustom">' + shareCustomHtml() + '</div>'
     +     '<div class="picker"><div class="picklabel">배경 사진 (선택 안 하면 기본 배경)</div>'
     +       '<button class="photobtn" onclick="openSharePhoto()">' + ic('camera') + ' 배경 사진 넣기</button>'
     +       '<input type="file" accept="image/*" id="file_share" class="hiddenfile">'
@@ -1206,8 +1241,17 @@ function openShare(){
   renderShareCard();
   icons();
 }
-function rangeBtn(v,label){ return '<button class="button ' + (SHARE_RANGE===v?'accent':'ghost') + '" style="flex:1;padding:12px 4px;font-size:13px" onclick="SHARE_RANGE=\'' + v + '\';refreshShareSeg();renderShareCard()">' + esc(label) + '</button>'; }
-function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('today','오늘')+rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('all','전체'); }
+function rangeBtn(v,label){ return '<button class="button ' + (SHARE_RANGE===v?'accent':'ghost') + '" style="flex:1;padding:12px 4px;font-size:13px" onclick="shareSetRange(\'' + v + '\')">' + esc(label) + '</button>'; }
+function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('custom','기간 선택'); }
+function shareSetRange(v){ SHARE_RANGE=v; refreshShareSeg(); var c=$('shareCustom'); if(c) c.innerHTML=shareCustomHtml(); renderShareCard(); }
+function shareCustomHtml(){
+  if(SHARE_RANGE!=='custom') return '';
+  return '<div class="daterange">'
+    + '<input type="date" value="' + esc(SHARE_FROM) + '" max="' + todayStr() + '" onchange="SHARE_FROM=this.value;renderShareCard()">'
+    + '<span>~</span>'
+    + '<input type="date" value="' + esc(SHARE_TO) + '" max="' + todayStr() + '" onchange="SHARE_TO=this.value;renderShareCard()">'
+    + '</div>';
+}
 function closeShare(){ var sh=$('shareModal'); if(sh) sh.classList.remove('on'); SHARE_PHOTO=null; }
 function openSharePhoto(){ openPhotoSheetFor('share'); }
 function wireSharePhoto(){
@@ -1234,8 +1278,10 @@ function renderShareCard(){
   var cv = $('shareCanvas'); if(!cv) return;
   var W=1080, H=1920; cv.width=W; cv.height=H;
   var ctx = cv.getContext('2d');
-  var s = computeStat(TREND, SHARE_RANGE);
-  var title = SHARE_RANGE==='today' ? '오늘' : SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '전체 기록';
+  var s = computeStat(TREND, SHARE_RANGE, SHARE_FROM, SHARE_TO);
+  var title = SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '운동 요약';
+  var showSessions = (SHARE_RANGE==='week' || SHARE_RANGE==='month');   // 오늘·짧은기간엔 횟수 숨김
+  var periodTxt = mdSlash(s.from) + ' ~ ' + mdSlash(s.to);
 
   function paint(bgImg){
     // 배경
@@ -1264,34 +1310,16 @@ function renderShareCard(){
     ctx.fillStyle='#9aa3b2'; ctx.font='500 38px "Gothic A1",sans-serif';
     ctx.fillText(ME ? ME.name + '님의 운동 요약' : '운동 요약', pad, 345);
 
-    // 큰 숫자 3개
+    // 큰 숫자 (운동횟수는 주/달에만)
     var y=560;
-    bigStat(ctx, pad, y, s.sessions, '회', '운동 횟수');
-    bigStat(ctx, pad, y+260, s.km, 'km', '런닝 거리');
-    // 총 세트 + 아래에 총 kg (상/하체)
+    if(showSessions){ bigStat(ctx, pad, y, s.sessions, '회', '운동 횟수'); y+=260; }
+    bigStat(ctx, pad, y, s.km, 'km', '런닝 거리'); y+=260;
     var totKg = (s.upper.kg||0) + (s.lower.kg||0);
-    bigStat(ctx, pad, y+520, s.sets, '세트', '총 ' + addComma(totKg) + 'kg  (상체 ' + addComma(s.upper.kg) + ' · 하체 ' + addComma(s.lower.kg) + ')');
+    bigStat(ctx, pad, y, s.sets, '세트', '총 ' + addComma(totKg) + 'kg  (상체 ' + addComma(s.upper.kg) + ' · 하체 ' + addComma(s.lower.kg) + ')');
 
-    // 최고기록
-    var by=560+780;
-    if(s.best && s.best.length){
-      ctx.fillStyle='#c6f432'; ctx.font='800 44px "Gothic A1",sans-serif';
-      ctx.fillText('🔥 최고 기록', pad, by);
-      ctx.fillStyle='#eef1f5'; ctx.font='700 46px "Gothic A1",sans-serif';
-      s.best.forEach(function(b,i){ ctx.fillText(b.k + '  ' + b.v + 'kg', pad, by+70+i*68); });
-    }
-
-    // 하단 부부 비교
-    var wy=H-230;
-    var people=Object.keys(s.byWho);
-    if(people.length){
-      ctx.fillStyle='#9aa3b2'; ctx.font='600 34px "Gothic A1",sans-serif';
-      var txt=people.map(function(p){ return p+' '+s.byWho[p]+'회'; }).join('   ·   ');
-      ctx.fillText('👫 ' + txt, pad, wy);
-    }
-    // 날짜
-    ctx.fillStyle='#5b6472'; ctx.font='500 30px "Gothic A1",sans-serif';
-    ctx.fillText(new Date().toISOString().slice(0,10), pad, H-110);
+    // 하단 기간 표시
+    ctx.fillStyle='#9aa3b2'; ctx.font='600 36px "Gothic A1",sans-serif';
+    ctx.fillText('📅 ' + periodTxt, pad, H-120);
   }
 
   if(SHARE_PHOTO && SHARE_PHOTO.data){
@@ -1393,8 +1421,8 @@ function renderVsCard(){
   ctx.fillStyle='#8a93a4'; ctx.font='600 36px "Gothic A1",sans-serif';
   ctx.fillText(VS_DATE, W/2, 280);
 
-  // 두 칸 영역 (위/아래)
-  var top=340, cellH=640, gap=40;
+  // 두 칸 영역 (위/아래) — 거의 정사각에 가깝게 해서 사진이 덜 잘리게
+  var top=330, cellH=700, gap=36;
   var cells=[{d:A, y:top}, {d:B, y:top+cellH+gap}];
   var pending=0, finish=function(){ pending--; if(pending<=0) drawVerdict(); };
   var margin=70, cw=W-margin*2;

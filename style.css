@@ -140,7 +140,12 @@ button{font:inherit}
 .setrow{display:flex;align-items:center;gap:8px;margin:7px 0}
 .setrow .setno{width:52px;font-size:13px;color:var(--main);font-weight:800;flex-shrink:0}
 .setrow input{flex:1;min-width:0;padding:14px 10px;border:1px solid var(--line);border-radius:14px;font:inherit;font-size:17px;font-weight:700;text-align:center;background:var(--card2);color:var(--text);transition:.15s}
-.setrow input::placeholder{color:#8a93a4;font-weight:400}
+.setrow input::placeholder{color:#8a93a4;font-weight:400;font-size:13px}
+/* 운동 선택 칩 */
+.wchips{display:flex;gap:8px;flex-wrap:wrap}
+.wchip{flex:1;min-width:64px;padding:13px 8px;border:1px solid var(--line);border-radius:12px;background:var(--card2);color:var(--sub);font-size:15px;font-weight:700;cursor:pointer;transition:.15s}
+.wchip:hover{border-color:var(--line2);color:var(--text)}
+.wchip.on{background:linear-gradient(180deg,var(--main),var(--main-d));color:var(--ink);border-color:var(--main)}
 .setrow input:focus{outline:none;border-color:var(--main);box-shadow:0 0 0 3px rgba(198,244,50,.15)}
 .xbtn2{width:40px;height:40px;flex-shrink:0;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--sub);font-size:15px;cursor:pointer;transition:.15s}
 .xbtn2:hover{border-color:var(--accent);color:var(--accent)}
@@ -283,9 +288,21 @@ select{-webkit-appearance:none;appearance:none;
 .chipbtn:hover{border-color:var(--line2);color:var(--text)}
 .chipbtn.on{background:linear-gradient(180deg,var(--main),var(--main-d));color:var(--ink);border-color:var(--main)}
 
+/* 기간 선택 (date 2개) */
+.daterange{display:flex;align-items:center;gap:8px;margin:10px 0}
+.daterange input{flex:1;min-width:0;padding:12px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card2);color:var(--text);font:inherit;font-size:15px}
+.daterange span{color:var(--sub);font-weight:700}
+
 /* 공유 카드 미리보기 (9:16) */
 .sharepreview{width:100%;max-width:260px;margin:14px auto;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#000}
 .sharepreview canvas{width:100%;height:auto;display:block}
+
+/* ===== 메인 비교 피드백 ===== */
+.fbcard{border-color:rgba(198,244,50,.25)}
+.fbhead{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--sub);margin-bottom:8px}
+.fbhead svg{width:16px;height:16px;color:var(--main)}
+.fbline{font-size:16px;font-weight:700;line-height:1.5;color:var(--text)}
+.fbline .hl{color:var(--main);font-weight:900}
 
 /* ===== 홈 오운완 피드 (1×1 두 칸) ===== */
 .feedgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}

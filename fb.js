@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF1.9';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF2.0';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -114,12 +114,12 @@
     const u = requireUser(); d = d || {};
     const date = tidy(d.date, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) fail('날짜를 올바르게 선택해 주세요.');
     const workout = WORKOUTS.indexOf(tidy(d.workout)) >= 0 ? d.workout : '';
-    // 같은 날·같은 사람 세션이 있으면 재사용
-    const ex = await col('sessions').where('uid', '==', u.uid).where('date', '==', date).limit(1).get();
-    if (!ex.empty) {
-      const ref = ex.docs[0];
-      if (workout) await ref.ref.update({ workout });
-      return { ok: true, id: ref.id, date, workout: workout || ref.data().workout };
+    // 같은 날·같은 사람 세션이 있으면 재사용 (색인 불필요: date로만 쿼리 후 uid는 JS 필터)
+    const sameDay = await col('sessions').where('date', '==', date).get().then((snap) => snap.docs);
+    const mine = sameDay.filter((doc) => doc.data().uid === u.uid)[0];
+    if (mine) {
+      if (workout) await mine.ref.update({ workout });
+      return { ok: true, id: mine.id, date, workout: workout || mine.data().workout };
     }
     const ref = await col('sessions').add({ date, who: u.name, uid: u.uid, workout, finishPhoto: '', finishThumb: '', createdAt: now() });
     return { ok: true, id: ref.id, date, workout };
@@ -280,6 +280,52 @@
         thumb: s.finishThumbData || s.finishThumb, video: s.finishVideo || '', type: s.finishType || 'photo', url: s.finishPhoto || s.finishVideo || '' }));
   }
 
+  /* ---------- 메인 비교 피드백 (내 최근 vs 그 전 같은 운동) ---------- */
+  async function lastFeedback() {
+    const u = requireUser();
+    const [ssRaw, runs, wts] = await Promise.all([
+      col('sessions').where('uid', '==', u.uid).get().then(docsOf),
+      col('running').where('uid', '==', u.uid).get().then(docsOf),
+      col('weights').where('uid', '==', u.uid).get().then(docsOf),
+    ]);
+    if (!ssRaw.length) return { type: 'none' };
+    const ss = ssRaw.sort((a, b) => String(b.date).localeCompare(String(a.date)));   // 최신순 (색인 불필요)
+    const cur = ss[0];
+    // 같은 운동(workout)의 직전 세션
+    const prev = ss.slice(1).find((s) => s.workout && s.workout === cur.workout);
+
+    const setsOf = (sid) => wts.filter((w) => w.sessionId === sid);
+    const runOf = (sid) => runs.filter((r) => r.sessionId === sid);
+    const sumSets = (sid) => setsOf(sid).length;
+    const kmOf = (sid) => runOf(sid).reduce((a, r) => a + (Number(r.km) || 0), 0);
+    // 기구+동작별 최고무게
+    const bestMap = (sid) => {
+      const m = {};
+      setsOf(sid).forEach((w) => { const k = w.equip + (w.move ? ' ' + w.move : ''); const v = Number(w.weight) || 0; if (!m[k] || v > m[k]) m[k] = v; });
+      return m;
+    };
+
+    const base = { who: u.name, date: cur.date, workout: cur.workout || '' };
+    if (!prev) {
+      // 비교 대상 없음 → 요약
+      const km = Math.round(kmOf(cur.id) * 10) / 10;
+      return Object.assign(base, { type: 'first', sets: sumSets(cur.id), km });
+    }
+    // 1) 기구 무게 증가 찾기 (가장 큰 증가)
+    const cm = bestMap(cur.id), pm = bestMap(prev.id);
+    let bestInc = null;
+    Object.keys(cm).forEach((k) => { if (pm[k] != null) { const diff = cm[k] - pm[k]; if (diff > 0 && (!bestInc || diff > bestInc.diff)) bestInc = { k, diff, now: cm[k] }; } });
+    if (bestInc) return Object.assign(base, { type: 'weight', equip: bestInc.k, inc: bestInc.diff, now: bestInc.now });
+    // 2) 런닝 거리 증가
+    const curKm = kmOf(cur.id), prevKm = kmOf(prev.id);
+    if (curKm > prevKm + 0.05) return Object.assign(base, { type: 'run', inc: Math.round((curKm - prevKm) * 10) / 10, now: Math.round(curKm * 10) / 10 });
+    // 3) 세트 수 증가
+    const cs = sumSets(cur.id), ps = sumSets(prev.id);
+    if (cs > ps) return Object.assign(base, { type: 'sets', inc: cs - ps, now: cs });
+    // 4) 유지/감소 → 격려
+    return Object.assign(base, { type: 'keep' });
+  }
+
   /* ---------- 발전 추이용 원자료 ---------- */
   async function trendData() {
     requireUser();
@@ -291,7 +337,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog };
+  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
