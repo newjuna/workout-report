@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF1.8';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF1.9';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -159,18 +159,15 @@
   async function addFinish(sid, media) {
     const u = requireUser(); const s = await mySession_(tidy(sid, 40));
     media = media || {};
-    if (!media.data) fail('사진 또는 영상을 선택해 주세요.');
-    const isVideo = media.kind === 'video';
-    const saved = await uploadMedia(isVideo ? '오운완영상' : '오운완', media);
-    const patch = {
-      finishPhoto: isVideo ? '' : (saved.url || ''),
-      finishVideo: isVideo ? (saved.url || '') : '',
+    if (!media.data) fail('사진을 선택해 주세요.');
+    const saved = await uploadMedia('오운완', media);
+    await col('sessions').doc(s.id).update({
+      finishPhoto: saved.url || '',
       finishThumb: saved.thumb || '',               // 드라이브 썸네일(폴백)
       finishThumbData: tidy(media.thumbData, 300000), // 작은 base64 (CORS 없음)
-      finishType: isVideo ? 'video' : 'photo',
-    };
-    await col('sessions').doc(s.id).update(patch);
-    return { ok: true, thumb: saved.thumb, url: saved.url, type: patch.finishType };
+      finishType: 'photo',
+    });
+    return { ok: true, thumb: saved.thumb, url: saved.url, type: 'photo' };
   }
 
   /* ---------- 일지 조회 ---------- */

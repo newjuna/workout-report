@@ -7,15 +7,14 @@ var PARTS = [];
 var PEOPLE = [];
 var CUR_TAB = 'home';
 var GEAR = [];
-var SID = '';
-var DRAFT = null;
-var PHOTOBUF = {};
+var DRAFT = null;       // 지금 입력 중인 기구 1개
+var PHOTOBUF = {};      // 기구/동작 사진 임시버퍼 (eq, mv) — 기록하기 오운완은 LOG.fin 사용
 var PICK_STEP = '';
 var PICK_EQUIP = null;
-var FIN_TEXT = '';
-var SESS = { date:'', workout:'' };
-var SAVED = { running:[], weights:[], finishThumb:'' };
-var OPEN = '';
+var OPEN = '';          // 펼친 폼: 'run' | 'weight' | ''
+/* 기록하기 전체를 담는 로컬 임시 상태 (localStorage에 저장 → 새로고침·이탈 복원) */
+var LOG = null;         // { date, workout, running:{...}|null, weights:[...], fin:{data,thumbData}|null, finText }
+var LOG_KEY = 'workoutDraft';
 
 /* ---------- 공통 도구 ---------- */
 function $(id){ return document.getElementById(id); }
@@ -32,39 +31,52 @@ function cover(on, msg){
   c.classList.toggle('on', !!on);
 }
 
-/* ---------- 체크리스트형 로딩 ---------- */
-var LC_STEPS = [], LC_CUR = '';
+/* ---------- 체크리스트형 로딩 (항목 옆 % → 완료 시 ✓) ---------- */
+var LC_STEPS = [], LC_CUR = '', LC_TIMER = null;
 function loadSteps(steps, firstKey){
-  LC_STEPS = steps.slice(); LC_CUR = firstKey || (steps[0]&&steps[0].k) || '';
+  LC_STEPS = steps.map(function(s){ return { k:s.k, t:s.t, _done:false, _pct:0 }; });
   $('loadSimple').hidden=true; $('loadChecklist').hidden=false;
   $('cover').classList.add('on');
-  renderLoadList(); icons();
+  setCur(firstKey || (LC_STEPS[0]&&LC_STEPS[0].k) || '');
+  renderLoadList();
+}
+function setCur(key){
+  if(LC_TIMER){ clearInterval(LC_TIMER); LC_TIMER=null; }
+  LC_CUR = key || '';
+  // 현재 단계 % 를 천천히 90까지 올림 (진행 중인 느낌)
+  if(LC_CUR){
+    LC_TIMER = setInterval(function(){
+      var st = LC_STEPS.filter(function(s){return s.k===LC_CUR;})[0];
+      if(!st){ return; }
+      if(st._pct < 90){ st._pct += Math.max(2, Math.round((90-st._pct)/6)); updatePct(st); }
+    }, 180);
+  }
+}
+function updatePct(st){
+  var el = document.getElementById('lc_'+st.k+'_p');
+  if(el) el.textContent = Math.min(99, st._pct) + '%';
 }
 function renderLoadList(){
-  var doneBefore=true;
   $('lcList').innerHTML = LC_STEPS.map(function(st){
-    var isCur = st.k===LC_CUR;
-    var done = st._done;
-    var icon = done ? ic('check-circle') : isCur ? '<span class="lc-spin"></span>' : ic('circle');
-    return '<li class="' + (done?'done':isCur?'cur':'wait') + '">' + icon + '<span>' + esc(st.t) + '</span></li>';
+    var isCur = st.k===LC_CUR && !st._done;
+    var right = st._done ? ic('check-circle')
+      : isCur ? '<span class="lc-p" id="lc_'+st.k+'_p">'+Math.min(99,st._pct)+'%</span>'
+      : ic('circle');
+    return '<li class="' + (st._done?'done':isCur?'cur':'wait') + '"><span class="lc-t">' + esc(st.t) + '</span>' + right + '</li>';
   }).join('');
-  // 진행률 = 완료 단계 비율
-  var total=LC_STEPS.length, doneN=LC_STEPS.filter(function(s){return s._done;}).length;
-  var curBonus = LC_CUR ? 0.5 : 0;
-  var pct = Math.min(100, Math.round(((doneN+curBonus)/total)*100));
-  $('lcBar').style.width = pct+'%'; $('lcPct').textContent = pct+'%';
   icons();
 }
-/* 현재 단계 완료 처리하고 다음(nextKey)으로. pct는 선택(미사용) */
+/* 현재 단계 완료(✓) 처리하고 다음(nextKey)로 */
 function loadStep(nextKey){
-  LC_STEPS.forEach(function(s){ if(s.k===LC_CUR) s._done=true; });
-  LC_CUR = nextKey || '';
+  LC_STEPS.forEach(function(s){ if(s.k===LC_CUR){ s._done=true; s._pct=100; } });
+  setCur(nextKey || '');
   renderLoadList();
 }
 function loadDone(){
+  if(LC_TIMER){ clearInterval(LC_TIMER); LC_TIMER=null; }
   LC_STEPS.forEach(function(s){ s._done=true; }); LC_CUR='';
   renderLoadList();
-  setTimeout(function(){ $('cover').classList.remove('on'); }, 350);
+  setTimeout(function(){ $('cover').classList.remove('on'); }, 400);
 }
 function call(fn){ return FB.call.apply(FB, [fn].concat(Array.prototype.slice.call(arguments,1))); }
 
@@ -325,12 +337,19 @@ function openHistPhoto(i){
 }
 
 /* ====================================================================
- * 기록하기 화면
+ * 기록하기 화면 — 로컬 임시저장(localStorage) → 마지막 "운동 완료"에 일괄 제출
+ *  · 항목마다 서버 저장 안 함(즉시 반응). 새로고침/이탈해도 복원됨
+ *  · 사진·업로드는 "운동 완료" 누를 때만 서버로
  * ==================================================================== */
+function saveLog(){ try{ localStorage.setItem(LOG_KEY, JSON.stringify(LOG)); }catch(e){} }
+function clearLog(){ LOG=null; try{ localStorage.removeItem(LOG_KEY); }catch(e){} }
+function loadSavedLog(){ try{ var s=localStorage.getItem(LOG_KEY); return s?JSON.parse(s):null; }catch(e){ return null; } }
+
 function renderLog(){
   ensureEquip(function(){
-    if(!SID) return renderLogStart();
-    renderLogBody();
+    if(!LOG) LOG = loadSavedLog();          // 이전에 쓰던 거 복원
+    if(!LOG) return renderLogStart();        // 새로 시작
+    renderLogView();
   });
 }
 function renderLogStart(){
@@ -340,110 +359,92 @@ function renderLogStart(){
     + '<div class="field"><label>날짜</label><input type="date" id="logDate" value="' + todayStr() + '"></div>'
     + '<div class="field"><label>오늘의 운동</label><select id="logWorkout" class="bigsel">' + workoutOptions('') + '</select></div>'
     + '<button class="button accent" style="width:100%;margin-top:6px" onclick="doStartSession()">시작하기</button>'
-    + '<p class="muted" style="margin-top:10px">시작하면 각 항목을 끝낼 때마다 바로 저장돼요. 중간에 꺼져도 저장된 건 남아요.</p>'
+    + '<p class="muted" style="margin-top:10px">입력하는 동안 자동으로 임시 저장돼요. 중간에 나갔다 와도 그대로 남아요. 마지막에 "운동 완료"를 눌러야 최종 저장됩니다.</p>'
     + '</div>';
 }
 function doStartSession(){
   var date = $('logDate').value, workout = $('logWorkout').value;
   if(!date){ toast('날짜를 선택해 주세요.'); return; }
-  cover(true, '시작하는 중…');
-  call('startSession', { date:date, workout:workout }).then(function(r){
-    cover(false); SID = r.id; SESS = { date:r.date, workout:r.workout };
-    SAVED = { running:[], weights:[], finishThumb:'' };
-    DRAFT = null; OPEN=''; renderLogBody();
-  }).catch(function(e){ cover(false); toast('시작 실패: ' + (e&&e.message||e)); });
+  LOG = { date:date, workout:workout, running:null, weights:[], fin:null, finText:'' };
+  DRAFT=null; OPEN=''; saveLog(); renderLogView();
 }
 
-function renderLogBody(){
-  cover(true, '불러오는 중…');
-  call('sessionSummary', SID).then(function(v){
-    cover(false);
-    SAVED = { running: v.running||[], weights: v.weights||[], finishThumb: v.finishThumb||'' };
-    SESS = { date: v.date, workout: v.workout };
-    $('log').innerHTML = logBodyHtml();
-    wirePhotoButtons(); icons();
-  }).catch(function(e){ cover(false); toast('오류: ' + (e&&e.message||e)); });
-}
+function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); wireFinInputs(); icons(); }
 
 function logBodyHtml(){
   var h = '';
   h += '<div class="card">'
     + '<div class="row" style="justify-content:space-between;align-items:center">'
-    +   '<div><b>' + esc(SESS.date) + '</b>' + (SESS.workout ? ' <span class="chip">' + esc(SESS.workout) + '</span>' : '') + '</div>'
-    +   '<button class="pillbtn" onclick="endSession()">' + ic('check') + ' 끝내기</button>'
+    +   '<div><b>' + esc(LOG.date) + '</b>' + (LOG.workout ? ' <span class="chip">' + esc(LOG.workout) + '</span>' : '') + '</div>'
+    +   '<button class="linkbtn-del" onclick="discardLog()">기록 취소</button>'
     + '</div></div>';
 
+  // 런닝 (저장버튼 없음 · 입력하면 즉시 LOG에)
   h += '<div class="card">'
     + '<h2>' + ic('footprints') + ' 런닝머신</h2>'
-    + SAVED.running.map(function(r){ return '<div class="savedline">✓ ' + esc(runText(r)) + '</div>'; }).join('')
-    + (OPEN==='run' ? runFormHtml() : '<button class="softbtn" onclick="openForm(\'run\')">＋ 런닝 기록 추가</button>')
+    + (LOG.running ? '<div class="savedline">✓ ' + esc(runText(LOG.running)) + '<button class="xmini" onclick="LOG.running=null;saveLog();renderLogView()">✕</button></div>' : '')
+    + (OPEN==='run' ? runFormHtml() : (LOG.running ? '' : '<button class="softbtn" onclick="openForm(\'run\')">＋ 런닝 기록 추가</button>'))
     + '</div>';
 
+  // 웨이트 (기구별로 LOG.weights에 쌓임)
   h += '<div class="card">'
     + '<h2>' + ic('dumbbell') + ' 웨이트</h2>'
-    + (SAVED.weights.length ? SAVED.weights.map(function(w){
+    + LOG.weights.map(function(w, wi){
         var sets = (w.sets||[]).map(function(x){ return x.weight+'kg×'+x.reps; }).join(', ');
         var mv = w.move ? ' · ' + esc(w.move) : '';
-        return '<div class="savedline">✓ <b>' + esc(w.equip) + '</b>' + mv + ' <span class="muted">' + esc(sets) + '</span></div>';
-      }).join('') : '')
+        return '<div class="savedline">✓ <b>' + esc(w.equip) + '</b>' + mv + ' <span class="muted">' + esc(sets) + '</span>'
+          + '<button class="xmini" onclick="delWeightItem(' + wi + ')">✕</button></div>';
+      }).join('')
     + (OPEN==='weight' ? weightFormHtml() : '<button class="softbtn" onclick="openWeight()">＋ 기구 추가</button>')
     + (GEAR.length ? '' : '<p class="muted" style="margin-top:8px">먼저 <a onclick="switchTab(\'equip\')">기구 목록</a>에서 기구를 등록하세요.</p>')
     + '</div>';
 
+  // 오운완 사진 (선택)
   h += '<div class="card" id="finCard">'
-    + '<h2>' + ic('camera') + ' 오운완</h2>'
+    + '<h2>' + ic('camera') + ' 오운완 사진</h2>'
     + finishInner()
+    + '</div>';
+
+  // 최종 완료
+  h += '<div class="card">'
+    + '<button class="button accent" style="width:100%;font-size:17px;padding:16px" onclick="submitWorkout(event)">' + ic('check-circle') + ' 운동 완료!</button>'
+    + '<p class="muted" style="text-align:center;margin-top:8px">완료를 누르면 사진 업로드와 함께 최종 저장돼요.</p>'
     + '</div>';
   return h;
 }
+function discardLog(){
+  if(!confirm('오늘 입력한 기록을 취소할까요? (저장 전이라 사라져요)')) return;
+  clearLog(); DRAFT=null; OPEN=''; switchTab('home');
+}
+function delWeightItem(wi){ LOG.weights.splice(wi,1); saveLog(); renderLogView(); }
 
+/* ---- 오운완 사진 (선택, 미리보기+문구는 로컬) ---- */
 function finishInner(){
-  if(SAVED.finishThumb && !PHOTOBUF.fin){
-    var done = (SAVED.finishType==='video')
-      ? '<div style="position:relative;max-width:220px"><img src="' + esc(SAVED.finishThumb) + '" style="width:100%;border-radius:16px"><span class="playbadge">▶</span></div>'
-      : '<img src="' + esc(SAVED.finishThumb) + '" style="width:100%;max-width:220px;border-radius:16px">';
-    return done + '<button class="softbtn" style="margin-top:10px" onclick="PHOTOBUF.fin=null;FIN_TEXT=\'\';renderLogView()">다시 올리기</button>';
-  }
-  if(PHOTOBUF.fin){
-    var isVid = PHOTOBUF.fin.kind==='video';
-    var media = isVid
-      ? '<video src="' + esc(PHOTOBUF.fin.data) + '" class="finimg" autoplay muted loop playsinline></video>'
-      : '<img src="' + esc(PHOTOBUF.fin.data) + '" class="finimg">';
+  if(LOG.fin){
     return '<div class="finstage" id="finStage">'
-      +   media
+      +   '<img src="' + esc(LOG.fin.data) + '" class="finimg">'
       +   '<div class="finoverlay">'
-      +     '<div class="fintext" id="finPreview">' + esc(FIN_TEXT || '') + '</div>'
-      +     '<div class="finmeta">' + esc(SESS.date) + (SESS.workout ? ' · ' + esc(SESS.workout) : '') + ' · ' + esc(ME.name) + '</div>'
+      +     '<div class="fintext" id="finPreview">' + esc(LOG.finText || '') + '</div>'
+      +     '<div class="finmeta">' + esc(LOG.date) + (LOG.workout ? ' · ' + esc(LOG.workout) : '') + ' · ' + esc(ME.name) + '</div>'
       +   '</div>'
       + '</div>'
-      + '<input id="finInput" class="fininput" maxlength="40" placeholder="오늘의 한마디 (예: 가슴 조졌다 💪)" value="' + esc(FIN_TEXT || '') + '" oninput="FIN_TEXT=this.value;document.getElementById(\'finPreview\').textContent=this.value">'
-      + '<div class="row" style="margin-top:10px">'
-      +   '<button class="button ghost" style="flex:1" onclick="PHOTOBUF.fin=null;FIN_TEXT=\'\';renderLogView()">취소</button>'
-      +   '<button class="button accent" style="flex:2" onclick="confirmFinish(event)">이걸로 저장</button>'
-      + '</div>'
-      + (isVid ? '<p class="muted" style="margin-top:8px;text-align:center">영상은 문구가 미리보기에만 보이고, 저장 땐 영상 그대로 올라가요.</p>' : '');
+      + '<input id="finInput" class="fininput" maxlength="40" placeholder="오늘의 한마디 (예: 가슴 조졌다 💪)" value="' + esc(LOG.finText || '') + '" oninput="LOG.finText=this.value;saveLog();document.getElementById(\'finPreview\').textContent=this.value">'
+      + '<button class="softbtn" style="margin-top:10px" onclick="LOG.fin=null;LOG.finText=\'\';saveLog();renderLogView()">사진 다시 고르기</button>';
   }
-  // 사진 or 영상 선택 (오운완 전용)
   return '<div class="picker">'
-    + '<div class="picklabel">오운완 올리기 (사진 또는 5초 영상)</div>'
-    + '<button class="photobtn" onclick="openFinSheet()">' + ic('camera') + ' 오운완 올리기</button>'
+    + '<div class="picklabel">오운완 사진 (선택 · 안 올려도 완료 가능)</div>'
+    + '<button class="photobtn" onclick="openFinSheet()">' + ic('camera') + ' 사진 올리기</button>'
     + '<input type="file" accept="image/*" id="file_finimg" class="hiddenfile">'
     + '<input type="file" accept="image/*" capture="environment" id="cam_finimg" class="hiddenfile">'
-    + '<input type="file" accept="video/*" id="file_finvid" class="hiddenfile">'
-    + '<input type="file" accept="video/*" capture="environment" id="cam_finvid" class="hiddenfile">'
     + '</div>';
 }
-
-/* 오운완 전용 선택 시트 (사진 촬영/앨범 + 영상 촬영/앨범) */
 function openFinSheet(){
   var sh=$('photoSheet');
   if(!sh){ sh=document.createElement('div'); sh.id='photoSheet'; sh.className='sheetwrap'; document.body.appendChild(sh); }
   sh.innerHTML='<div class="sheetbg" onclick="closePhotoSheet()"></div>'
-    + '<div class="sheetbox"><div class="sheettitle">오운완 올리기</div>'
+    + '<div class="sheetbox"><div class="sheettitle">오운완 사진</div>'
     + '<button class="sheetitem" onclick="finPick(\'cam_finimg\')">' + ic('camera') + ' 사진 촬영</button>'
-    + '<button class="sheetitem" onclick="finPick(\'file_finimg\')">' + ic('image') + ' 사진 (앨범)</button>'
-    + '<button class="sheetitem" onclick="finPick(\'cam_finvid\')">' + ic('video') + ' 영상 촬영 (5초)</button>'
-    + '<button class="sheetitem" onclick="finPick(\'file_finvid\')">' + ic('film') + ' 영상 (앨범)</button>'
+    + '<button class="sheetitem" onclick="finPick(\'file_finimg\')">' + ic('image') + ' 앨범에서 선택</button>'
     + '<button class="sheetitem cancel" onclick="closePhotoSheet()">취소</button></div>';
   sh.classList.add('on'); icons();
   wireFinInputs();
@@ -452,43 +453,9 @@ function finPick(id){ closePhotoSheet(); var el=$(id); if(el) el.click(); }
 function wireFinInputs(){
   ['file_finimg','cam_finimg'].forEach(function(id){ var el=$(id); if(!el) return;
     el.onchange=function(){ var f=el.files&&el.files[0]; if(!f) return;
-      shrinkImage(f, 1080, 0.82, function(data){ PHOTOBUF.fin={ kind:'photo', mime:'image/jpeg', data:data, thumbData:null };
-        makeThumbFromImage(data, function(t){ PHOTOBUF.fin.thumbData=t; }); FIN_TEXT=''; renderLogView(); }); };
-  });
-  ['file_finvid','cam_finvid'].forEach(function(id){ var el=$(id); if(!el) return;
-    el.onchange=function(){ var f=el.files&&el.files[0]; if(!f) return; handleFinVideo(f); };
+      shrinkImage(f, 1080, 0.82, function(data){ LOG.fin={ data:data }; LOG.finText=LOG.finText||''; saveLog(); renderLogView(); }); };
   });
 }
-/* 영상: 5초 검사 + 첫 프레임 썸네일 추출 */
-function handleFinVideo(file){
-  cover(true,'영상 확인 중…');
-  var url = URL.createObjectURL(file);
-  var v = document.createElement('video');
-  v.preload='metadata'; v.muted=true; v.playsInline=true;
-  v.onloadedmetadata=function(){
-    if(v.duration > 5.8){ cover(false); URL.revokeObjectURL(url); toast('영상은 5초 이내만 올릴 수 있어요'); return; }
-    // 첫 프레임 썸네일
-    v.currentTime = Math.min(0.1, v.duration/2);
-  };
-  v.onseeked=function(){
-    var cv=document.createElement('canvas');
-    var w=v.videoWidth, h=v.videoHeight, M=640;
-    if(Math.max(w,h)>M){ var r=M/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
-    cv.width=w; cv.height=h; cv.getContext('2d').drawImage(v,0,0,w,h);
-    var thumb=''; try{ thumb=cv.toDataURL('image/jpeg',0.7); }catch(e){}
-    // 영상 자체를 base64로
-    var reader=new FileReader();
-    reader.onload=function(){
-      cover(false);
-      PHOTOBUF.fin={ kind:'video', mime:file.type||'video/mp4', data:reader.result, thumbData:thumb };
-      FIN_TEXT=''; URL.revokeObjectURL(url); renderLogView();
-    };
-    reader.readAsDataURL(file);
-  };
-  v.onerror=function(){ cover(false); URL.revokeObjectURL(url); toast('영상을 읽지 못했어요'); };
-  v.src=url;
-}
-/* 사진 base64 → 작은 썸네일 base64 (CORS 없는 카드 드로잉용) */
 function makeThumbFromImage(dataUrl, done){
   var im=new Image();
   im.onload=function(){ var cv=document.createElement('canvas'); var w=im.width,h=im.height,M=500;
@@ -501,36 +468,30 @@ function makeThumbFromImage(dataUrl, done){
 
 function runText(r){
   var p = [];
-  if(r.min!=='') p.push(r.min+'분'); if(r.km!=='') p.push(r.km+'km');
-  if(r.incline!=='') p.push('경사'+r.incline); if(r.speed!=='') p.push(r.speed+'km/h'); if(r.kcal!=='') p.push(r.kcal+'kcal');
+  if(String(r.min)!=='') p.push(r.min+'분'); if(String(r.km)!=='') p.push(r.km+'km');
+  if(String(r.incline)!=='') p.push('경사'+r.incline); if(String(r.speed)!=='') p.push(r.speed+'km/h'); if(String(r.kcal)!=='') p.push(r.kcal+'kcal');
   return p.join(' · ') || '기록';
 }
 function runFormHtml(){
+  var r = LOG.running || {};
   return '<div class="subcard">'
     + '<div class="grid2">'
-    +   numField('run_min','시간(분)','10') + numField('run_km','거리(km)','1.2')
-    +   numField('run_incline','경사','3') + numField('run_speed','속도(km/h)','7')
-    +   numField('run_kcal','칼로리','90') + '<div></div>'
+    +   numField('run_min','시간(분)','10',r.min) + numField('run_km','거리(km)','1.2',r.km)
+    +   numField('run_incline','경사','3',r.incline) + numField('run_speed','속도(km/h)','7',r.speed)
+    +   numField('run_kcal','칼로리','90',r.kcal) + '<div></div>'
     + '</div>'
-    + photoPicker('run', '결과 사진(선택)')
     + '<div class="row" style="margin-top:10px">'
     +   '<button class="button ghost" style="flex:1" onclick="OPEN=\'\';renderLogView()">취소</button>'
-    +   '<button class="button accent" style="flex:2" onclick="confirmRun(event)">확인 (저장)</button>'
+    +   '<button class="button accent" style="flex:2" onclick="saveRun()">추가</button>'
     + '</div></div>';
 }
-function numField(id, label, ph){
-  return '<div class="field"><label>' + label + '</label><input id="' + id + '" type="number" inputmode="decimal" placeholder="' + ph + '"></div>';
+function numField(id, label, ph, val){
+  return '<div class="field"><label>' + label + '</label><input id="' + id + '" type="number" inputmode="decimal" placeholder="' + ph + '" value="' + (val==null?'':esc(val)) + '"></div>';
 }
-function confirmRun(ev){
-  var r = { min:val('run_min'), km:val('run_km'), incline:val('run_incline'), speed:val('run_speed'), kcal:val('run_kcal'), photo: PHOTOBUF.run || null };
-  if(['min','km','incline','speed','kcal'].every(function(k){return String(r[k]).trim()==='';}) && !r.photo){ toast('런닝 값을 입력해 주세요.'); return; }
-  var btn = ev && ev.target ? ev.target : null; busyBtn(btn,'저장 중…');
-  cover(true,'저장 중…');
-  call('addRunning', SID, r).then(function(){
-    cover(false); toast('런닝 기록 저장 ✓');
-    SAVED.running.push({ min:r.min, km:r.km, incline:r.incline, speed:r.speed, kcal:r.kcal, photo:'' });
-    PHOTOBUF.run=null; OPEN=''; renderLogView();
-  }).catch(function(e){ cover(false); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
+function saveRun(){
+  var r = { min:val('run_min'), km:val('run_km'), incline:val('run_incline'), speed:val('run_speed'), kcal:val('run_kcal') };
+  if(['min','km','incline','speed','kcal'].every(function(k){return String(r[k]).trim()==='';})){ toast('런닝 값을 입력해 주세요.'); return; }
+  LOG.running = r; OPEN=''; saveLog(); toast('런닝 추가 ✓'); renderLogView();
 }
 function val(id){ var el=$(id); return el?el.value:''; }
 
@@ -612,60 +573,78 @@ function weightFormHtml(){
     + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
     + '<div class="row" style="margin-top:10px">'
     +   '<button class="button ghost" style="flex:1" onclick="OPEN=\'\';DRAFT=null;renderLogView()">취소</button>'
-    +   '<button class="button accent" style="flex:2" onclick="confirmWeight(event)">확인 (저장)</button>'
+    +   '<button class="button accent" style="flex:2" onclick="confirmWeight()">추가</button>'
     + '</div></div>';
 }
 function addDraftSet(){ DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
 function delDraftSet(si){ DRAFT.sets.splice(si,1); if(!DRAFT.sets.length) DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
-function confirmWeight(ev){
+/* 웨이트 기구 1개를 LOG.weights에 추가 (서버 아님) */
+function confirmWeight(){
   if(!DRAFT || !DRAFT.equipName){ toast('기구를 선택해 주세요.'); return; }
   var sets = DRAFT.sets.filter(function(s){ return String(s.weight).trim()!=='' || String(s.reps).trim()!==''; });
   if(!sets.length){ toast('무게·횟수를 한 세트 이상 입력해 주세요.'); return; }
-  var btn = ev && ev.target ? ev.target : null; busyBtn(btn,'저장 중…');
-  var snap = { equip:DRAFT.equipName, move:DRAFT.moveName, part:DRAFT.part, sets:sets.slice() };
-  cover(true,'저장 중…');
-  call('addWeight', SID, { equipName:DRAFT.equipName, moveName:DRAFT.moveName, part:DRAFT.part, sets:sets })
-    .then(function(){
-      cover(false); toast(snap.equip + ' 저장 ✓');
-      SAVED.weights.push(snap);
-      DRAFT=null; OPEN=''; renderLogView();
-    }).catch(function(e){ cover(false); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
+  LOG.weights.push({ equip:DRAFT.equipName, move:DRAFT.moveName, part:DRAFT.part, sets:sets.slice() });
+  saveLog(); toast(DRAFT.equipName + ' 추가 ✓');
+  DRAFT=null; OPEN=''; renderLogView();
 }
-
-function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); icons(); }
 function openForm(kind){ OPEN=kind; renderLogView(); }
 
-function confirmFinish(ev){
-  if(!PHOTOBUF.fin){ toast('사진 또는 영상을 먼저 선택해 주세요.'); return; }
-  var btn = ev && ev.target ? ev.target : null; busyBtn(btn,'저장 중…');
-  var meta = SESS.date + (SESS.workout ? ' · ' + SESS.workout : '') + ' · ' + ME.name;
-
-  if(PHOTOBUF.fin.kind==='video'){
-    // 영상: 그대로 업로드 (문구 합성 없음), 썸네일은 추출해둔 것
-    loadSteps([{k:'build',t:'영상 준비'},{k:'upload',t:'영상 올리는 중'},{k:'save',t:'기록 저장'}], 'build');
-    loadStep('upload', 10);
-    var media = { kind:'video', mime:PHOTOBUF.fin.mime||'video/mp4', data:PHOTOBUF.fin.data, thumbData:PHOTOBUF.fin.thumbData };
-    call('addFinish', SID, media).then(function(r){
-      loadStep('save'); loadDone();
-      toast('오운완 영상 저장 ✓');
-      SAVED.finishThumb = PHOTOBUF.fin.thumbData || (r&&r.thumb) || ''; SAVED.finishType='video';
-      PHOTOBUF.fin=null; FIN_TEXT=''; renderLogView();
-    }).catch(function(e){ loadDone(); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
-    return;
+/* ====================================================================
+ * 운동 완료 — 전체를 서버로 일괄 제출 (여기서만 업로드)
+ * ==================================================================== */
+function submitWorkout(ev){
+  if(!LOG){ return; }
+  if(!LOG.running && !LOG.weights.length && !LOG.fin){ toast('기록한 내용이 없어요.'); return; }
+  // 사진 없으면 인증 경고
+  if(!LOG.fin){
+    if(!confirm('오운완 사진이 없으면 인증이 안 남아요. 그래도 완료할까요?')) return;
   }
+  var btn = ev && ev.target ? ev.target : null; if(btn){ btn.disabled=true; }
 
-  // 사진: 문구 합성 후 업로드
-  loadSteps([{k:'build',t:'사진에 문구 넣는 중'},{k:'upload',t:'사진 올리는 중'},{k:'save',t:'기록 저장'}], 'build');
-  composePhoto(PHOTOBUF.fin.data, FIN_TEXT, meta, function(dataUrl){
-    loadStep('upload', 10);
-    makeThumbFromImage(dataUrl, function(thumb){
-      var photo = { kind:'photo', name:'오운완.jpg', mime:'image/jpeg', data:dataUrl, thumbData:thumb };
-      call('addFinish', SID, photo).then(function(r){
-        loadStep('save'); loadDone();
-        toast('오운완 저장 ✓');
-        SAVED.finishThumb = thumb || (r && r.thumb) || dataUrl; SAVED.finishType='photo';
-        PHOTOBUF.fin=null; FIN_TEXT=''; renderLogView();
-      }).catch(function(e){ loadDone(); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
+  // 단계 목록 구성
+  var steps=[{k:'start',t:'기록 시작'}];
+  if(LOG.running) steps.push({k:'run',t:'런닝 저장'});
+  LOG.weights.forEach(function(w,i){ steps.push({k:'wt'+i, t:'웨이트 저장 (' + w.equip + ')'}); });
+  if(LOG.fin) steps.push({k:'photo',t:'오운완 사진 올리는 중'});
+  steps.push({k:'done',t:'마무리'});
+  loadSteps(steps, 'start');
+
+  var sid='';
+  // 순차 제출 (단계별 % 표시)
+  call('startSession', { date:LOG.date, workout:LOG.workout }).then(function(r){
+    sid=r.id; loadStep(LOG.running?'run':(LOG.weights.length?'wt0':(LOG.fin?'photo':'done')));
+    return LOG.running ? call('addRunning', sid, LOG.running) : null;
+  }).then(function(){
+    return chainWeights(sid, 0);
+  }).then(function(){
+    return LOG.fin ? uploadFinish(sid) : null;
+  }).then(function(){
+    loadStep('done'); loadDone();
+    clearLog(); DRAFT=null; OPEN='';
+    toast('오늘 운동 완료! 💪');
+    switchTab('home');
+  }).catch(function(e){ loadDone(); if(btn) btn.disabled=false; toast('저장 실패: ' + (e&&e.message||e)); });
+}
+/* 웨이트를 하나씩 순차 저장하며 단계 % 올림 */
+function chainWeights(sid, i){
+  if(i >= LOG.weights.length){ if(LOG.fin) loadStep('photo'); else if(!LOG.weights.length){} return Promise.resolve(); }
+  var w = LOG.weights[i];
+  return call('addWeight', sid, { equipName:w.equip, moveName:w.move, part:w.part, sets:w.sets })
+    .then(function(){
+      var next = (i+1<LOG.weights.length) ? 'wt'+(i+1) : (LOG.fin?'photo':'done');
+      loadStep(next);
+      return chainWeights(sid, i+1);
+    });
+}
+/* 오운완 사진 합성 후 업로드 */
+function uploadFinish(sid){
+  return new Promise(function(res, rej){
+    var meta = LOG.date + (LOG.workout ? ' · ' + LOG.workout : '') + ' · ' + ME.name;
+    composePhoto(LOG.fin.data, LOG.finText, meta, function(dataUrl){
+      makeThumbFromImage(dataUrl, function(thumb){
+        call('addFinish', sid, { kind:'photo', name:'오운완.jpg', mime:'image/jpeg', data:dataUrl, thumbData:thumb })
+          .then(function(){ loadStep('done'); res(); }).catch(rej);
+      });
     });
   });
 }
@@ -729,16 +708,10 @@ function wrapText(ctx, text, x, bottomY, maxW, lineH, maxLines){
   for(var j=0;j<lines.length;j++){ var y = bottomY - (lines.length-1-j)*lineH; ctx.fillText(lines[j], x, y); }
 }
 
-function endSession(){
-  SID=''; DRAFT=null; OPEN=''; PHOTOBUF={}; FIN_TEXT='';
-  toast('오늘 기록을 마쳤어요 💪');
-  switchTab('list');
-}
-
 /* ====================================================================
- * 사진 선택 (버튼 1개 → 촬영/앨범 시트)
+ * 사진 선택 (기구/동작 사진 · 버튼 1개 → 촬영/앨범 시트)
  * ==================================================================== */
-var PHOTO_KEYS = ['run','fin','eq','mv'];
+var PHOTO_KEYS = ['eq','mv'];
 function photoPicker(key, label){
   return '<div class="picker" id="pick_' + key + '">'
     + '<div class="picklabel">' + esc(label) + '</div>'
@@ -757,7 +730,6 @@ function wirePhotoButtons(){
         var f = input.files && input.files[0]; if(!f) return;
         shrinkImage(f, 1080, 0.82, function(data){
           PHOTOBUF[key] = { name:'photo.jpg', mime:'image/jpeg', data:data };
-          if(key==='fin'){ FIN_TEXT=''; renderLogView(); return; }
           var prev = $('prev_'+key);
           if(prev) prev.innerHTML = '<img src="' + data + '" class="prevpic">';
         });
