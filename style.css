@@ -33,6 +33,13 @@ body{
 .hidden{display:none!important}
 a{cursor:pointer;color:var(--main)}
 button{font:inherit}
+/* Lucide 라인 아이콘 기본 정렬/크기 */
+[data-lucide], svg.lucide{width:1.05em;height:1.05em;vertical-align:-0.15em;stroke-width:2}
+.card h2{display:flex;align-items:center;gap:8px}
+.card h2 svg{width:20px;height:20px;color:var(--main)}
+.button svg,.pillbtn svg,.softbtn svg,.photobtn svg,.sheetitem svg{vertical-align:-0.18em;margin-right:2px}
+.tabs button svg{width:19px;height:19px}
+.calbtn svg{width:16px;height:16px}
 ::selection{background:var(--main);color:var(--ink)}
 
 /* ===== 로그인 화면 ===== */
@@ -190,6 +197,15 @@ select{-webkit-appearance:none;appearance:none;
 .eqnoimg{display:flex;align-items:center;justify-content:center;background:var(--card2);font-size:28px}
 .movetags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .movetag{font-size:12px;font-weight:700;color:var(--main);background:rgba(198,244,50,.1);border:1px solid rgba(198,244,50,.25);border-radius:999px;padding:4px 11px}
+
+/* ===== 기구 목록 접기 (관리 전용) ===== */
+.eqfold{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden}
+.eqfold summary{list-style:none;cursor:pointer;padding:16px 18px;font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.eqfold summary::-webkit-details-marker{display:none}
+.eqfold .foldcaret{color:var(--sub);transition:.2s}
+.eqfold[open] .foldcaret{transform:rotate(180deg)}
+.eqlist{padding:0 14px 14px}
+.eqrow{border-top:1px solid var(--line);padding:14px 0}
 
 /* ===== 운동일지 달력 ===== */
 .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:12px}

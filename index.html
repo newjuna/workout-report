@@ -13,6 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -55,11 +56,11 @@
     </div>
     <div id="identity" class="who">계정 확인 중…</div>
     <nav class="tabs" id="navTabs">
-      <button data-tab="home" class="active" onclick="switchTab('home')">🏠 오늘 운동</button>
-      <button data-tab="log"  onclick="switchTab('log')">📋 기록하기</button>
-      <button data-tab="list" onclick="switchTab('list')">🗂 운동 일지</button>
-      <button data-tab="equip" onclick="switchTab('equip')">🏋 기구 목록</button>
-      <button data-tab="trend" onclick="switchTab('trend')">📈 성과 분석</button>
+      <button data-tab="home" class="active" onclick="switchTab('home')"><i data-lucide="home"></i> 오늘 운동</button>
+      <button data-tab="log"  onclick="switchTab('log')"><i data-lucide="plus-circle"></i> 기록하기</button>
+      <button data-tab="list" onclick="switchTab('list')"><i data-lucide="calendar-days"></i> 운동 일지</button>
+      <button data-tab="equip" onclick="switchTab('equip')"><i data-lucide="dumbbell"></i> 기구 목록</button>
+      <button data-tab="trend" onclick="switchTab('trend')"><i data-lucide="bar-chart-3"></i> 성과 분석</button>
     </nav>
     <button class="logout" type="button" onclick="logout()">로그아웃</button>
     <div class="dr-foot">운동 레포트 · <span id="footVer"></span></div>

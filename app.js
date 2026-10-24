@@ -46,6 +46,7 @@ window.onAuthChanged = function(user, rawUser){
     $('identity').innerHTML = '<b>' + esc(ME.name) + '</b><br>' + esc(ME.email);
     GEAR = [];   // 캐시 초기화
     switchTab('home');
+    icons();   // 메뉴 라인 아이콘 그리기
   } else {
     // 로그인 안 됨 또는 허용 안 된 계정
     $('appView').hidden = true;
@@ -97,12 +98,16 @@ function switchTab(tab){
 }
 
 function render(tab){
-  if(tab === 'home')  return renderHome();
-  if(tab === 'log')   return renderLog();
-  if(tab === 'equip') return renderEquip();
-  if(tab === 'list')  return renderList();
-  if(tab === 'trend') return renderTrend();
+  if(tab === 'home')  renderHome();
+  else if(tab === 'log')   renderLog();
+  else if(tab === 'equip') renderEquip();
+  else if(tab === 'list')  renderList();
+  else if(tab === 'trend') renderTrend();
+  icons();
 }
+/* Lucide 라인 아이콘 갱신 (렌더 후 호출) */
+function icons(){ if(window.lucide) try{ lucide.createIcons(); }catch(e){} }
+function ic(name){ return '<i data-lucide="' + name + '"></i>'; }
 
 function todayStr(){
   var d = new Date(), z = function(n){ return (n<10?'0':'')+n; };
@@ -121,15 +126,16 @@ function renderHome(){
     + '<p class="desc">부부의 최근 오운완을 확인하고, 오늘 운동을 기록해요.</p>'
     + '</div>'
     + '<div class="card">'
-    +   '<h2>📸 우리의 최근 오운완</h2>'
+    +   '<h2>' + ic('camera') + ' 우리의 최근 오운완</h2>'
     +   '<div id="feedGrid" class="feedgrid"><p class="muted">불러오는 중…</p></div>'
     + '</div>'
     + '<div class="card">'
     +   '<div class="row" style="gap:10px">'
-    +     '<button class="button accent" style="flex:2" onclick="switchTab(\'log\')">＋ 오늘 운동 시작</button>'
-    +     '<button class="button ghost" style="flex:1" onclick="openVersus()">⚔️ 대결</button>'
+    +     '<button class="button accent" style="flex:2" onclick="switchTab(\'log\')">' + ic('plus') + ' 오늘 운동 시작</button>'
+    +     '<button class="button ghost" style="flex:1" onclick="openVersus()">' + ic('swords') + ' 대결</button>'
     +   '</div>'
     + '</div>';
+  // 피드는 비동기라 아래 renderFeed에서 icons() 호출
   // 피드 로드
   call('latestFinish').then(function(list){
     FEED = list || [];
@@ -194,7 +200,7 @@ function offComment(f){
 function renderFeed(){
   var g = $('feedGrid'); if(!g) return;
   g.innerHTML = FEED.map(function(f, i){
-    var cal = '<button class="calbtn" title="지난 오운완 보기" onclick="event.stopPropagation();openFinishHistory(\'' + esc(f.who) + '\')">📅</button>';
+    var cal = '<button class="calbtn" title="지난 오운완 보기" onclick="event.stopPropagation();openFinishHistory(\'' + esc(f.who) + '\')">' + ic('calendar') + '</button>';
     if(f.hasPhoto){
       return '<div class="feedcard">'
         + '<div class="feedclick" onclick="openFeedPhoto(' + i + ')"><img src="' + esc(f.thumb) + '" class="feedimg"></div>'
@@ -208,6 +214,7 @@ function renderFeed(){
       + '<div class="feedcap"><b>' + esc(f.who) + '</b>' + cal + '<span>' + esc(since) + '</span></div>'
       + '</div>';
   }).join('');
+  icons();
 }
 
 /* 피드 사진 확대 팝업 */
@@ -306,7 +313,7 @@ function renderLogBody(){
     SAVED = { running: v.running||[], weights: v.weights||[], finishThumb: v.finishThumb||'' };
     SESS = { date: v.date, workout: v.workout };
     $('log').innerHTML = logBodyHtml();
-    wirePhotoButtons();
+    wirePhotoButtons(); icons();
   }).catch(function(e){ cover(false); toast('오류: ' + (e&&e.message||e)); });
 }
 
@@ -315,17 +322,17 @@ function logBodyHtml(){
   h += '<div class="card">'
     + '<div class="row" style="justify-content:space-between;align-items:center">'
     +   '<div><b>' + esc(SESS.date) + '</b>' + (SESS.workout ? ' <span class="chip">' + esc(SESS.workout) + '</span>' : '') + '</div>'
-    +   '<button class="pillbtn" onclick="endSession()">끝내기 ✓</button>'
+    +   '<button class="pillbtn" onclick="endSession()">' + ic('check') + ' 끝내기</button>'
     + '</div></div>';
 
   h += '<div class="card">'
-    + '<h2>🏃 런닝머신</h2>'
+    + '<h2>' + ic('footprints') + ' 런닝머신</h2>'
     + SAVED.running.map(function(r){ return '<div class="savedline">✓ ' + esc(runText(r)) + '</div>'; }).join('')
     + (OPEN==='run' ? runFormHtml() : '<button class="softbtn" onclick="openForm(\'run\')">＋ 런닝 기록 추가</button>')
     + '</div>';
 
   h += '<div class="card">'
-    + '<h2>🏋 웨이트</h2>'
+    + '<h2>' + ic('dumbbell') + ' 웨이트</h2>'
     + (SAVED.weights.length ? SAVED.weights.map(function(w){
         var sets = (w.sets||[]).map(function(x){ return x.weight+'kg×'+x.reps; }).join(', ');
         var mv = w.move ? ' · ' + esc(w.move) : '';
@@ -336,7 +343,7 @@ function logBodyHtml(){
     + '</div>';
 
   h += '<div class="card" id="finCard">'
-    + '<h2>📸 오운완</h2>'
+    + '<h2>' + ic('camera') + ' 오운완</h2>'
     + finishInner()
     + '</div>';
   return h;
@@ -497,7 +504,7 @@ function confirmWeight(ev){
     }).catch(function(e){ cover(false); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
 }
 
-function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); }
+function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); icons(); }
 function openForm(kind){ OPEN=kind; renderLogView(); }
 
 function confirmFinish(ev){
@@ -569,13 +576,14 @@ var PHOTO_KEYS = ['run','fin','eq','mv'];
 function photoPicker(key, label){
   return '<div class="picker" id="pick_' + key + '">'
     + '<div class="picklabel">' + esc(label) + '</div>'
-    + '<button class="photobtn" onclick="openPhotoSheet(\'' + key + '\')">📷 사진 올리기</button>'
+    + '<button class="photobtn" onclick="openPhotoSheet(\'' + key + '\')">' + ic('camera') + ' 사진 올리기</button>'
     + '<input type="file" accept="image/*" id="file_' + key + '" class="hiddenfile">'
     + '<input type="file" accept="image/*" capture="environment" id="cam_' + key + '" class="hiddenfile">'
     + '<div id="prev_' + key + '"></div>'
     + '</div>';
 }
 function wirePhotoButtons(){
+  icons();
   PHOTO_KEYS.forEach(function(key){
     ['file_','cam_'].forEach(function(pfx){
       var input = $(pfx+key); if(!input) return;
@@ -600,11 +608,11 @@ function openPhotoSheet(key){
     '<div class="sheetbg" onclick="closePhotoSheet()"></div>'
     + '<div class="sheetbox">'
     +   '<div class="sheettitle">사진 올리기</div>'
-    +   '<button class="sheetitem" onclick="pickFile(\'' + key + '\',true)">📸 카메라로 촬영</button>'
-    +   '<button class="sheetitem" onclick="pickFile(\'' + key + '\',false)">🏞️ 앨범에서 선택</button>'
+    +   '<button class="sheetitem" onclick="pickFile(\'' + key + '\',true)">' + ic('camera') + ' 카메라로 촬영</button>'
+    +   '<button class="sheetitem" onclick="pickFile(\'' + key + '\',false)">' + ic('image') + ' 앨범에서 선택</button>'
     +   '<button class="sheetitem cancel" onclick="closePhotoSheet()">취소</button>'
     + '</div>';
-  sh.classList.add('on');
+  sh.classList.add('on'); icons();
 }
 function closePhotoSheet(){ var sh=$('photoSheet'); if(sh) sh.classList.remove('on'); }
 function pickFile(key, camera){ closePhotoSheet(); var el = $((camera?'cam_':'file_')+key); if(el) el.click(); }
@@ -623,19 +631,15 @@ function renderEquip(){
     GEAR = list || [];
     var cards = GEAR.length ? GEAR.map(function(e){
       var moves = (e.moves||[]).map(function(m){ return '<span class="movetag">' + esc(m.name) + '</span>'; }).join('');
-      return '<div class="card">'
-        + '<div style="display:flex;gap:12px;align-items:center;cursor:pointer" onclick="openEquipLog(\'' + esc(e.name) + '\')">'
-        +   (e.thumb ? '<img src="' + esc(e.thumb) + '" class="eqimg">' : '<div class="eqimg eqnoimg">🏋</div>')
+      return '<div class="eqrow">'
+        + '<div style="display:flex;gap:12px;align-items:center">'
+        +   (e.thumb ? '<img src="' + esc(e.thumb) + '" class="eqimg">' : '<div class="eqimg eqnoimg"><i data-lucide="dumbbell"></i></div>')
         +   '<div style="flex:1"><b>' + esc(e.name) + '</b><br><span class="muted">' + esc(e.part) + ' · 동작 ' + (e.moves||[]).length + '개</span></div>'
-        +   '<span style="color:var(--sub);font-size:20px">›</span>'
         + '</div>'
         + (moves ? '<div class="movetags">' + moves + '</div>' : '<p class="muted" style="margin:8px 0 0">동작이 없어요.</p>')
-        + '<div class="row" style="gap:8px;margin-top:8px">'
-        +   '<button class="softbtn" style="margin:0;flex:1" onclick="openEquipLog(\'' + esc(e.name) + '\')">📈 내 기록</button>'
-        +   '<button class="softbtn" style="margin:0;flex:1" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
-        + '</div>'
+        + '<button class="softbtn" style="margin-top:8px" onclick="openMoveForm(\'' + e.id + '\')">＋ 동작 추가</button>'
         + '</div>';
-    }).join('') : '<div class="card"><p class="muted">아직 등록된 기구가 없어요. 아래에서 추가해 보세요.</p></div>';
+    }).join('') : '<p class="muted">아직 등록된 기구가 없어요. 위에서 추가해 보세요.</p>';
 
     $('equip').innerHTML =
       '<div class="card"><h2>기구 등록</h2>'
@@ -644,9 +648,11 @@ function renderEquip(){
       + photoPicker('eq', '기구 사진(선택)')
       + '<button class="button accent" style="width:100%;margin-top:10px" onclick="submitEquip(event)">기구 추가</button>'
       + '</div>'
-      + '<h2 style="margin:18px 4px 8px;font-size:16px">등록된 기구 ' + GEAR.length + '개</h2>'
-      + cards;
+      + '<details class="eqfold"><summary>등록된 기구 ' + GEAR.length + '개 <span class="foldcaret">▾</span></summary>'
+      +   '<div class="eqlist">' + cards + '</div>'
+      + '</details>';
     wirePhotoButtons();
+    if(window.lucide) lucide.createIcons();
   }).catch(function(e){ $('equip').innerHTML = '<div class="card"><p class="muted">오류: ' + esc(e&&e.message||e) + '</p></div>'; });
 }
 function submitEquip(ev){
@@ -692,32 +698,6 @@ function submitMove(ev){
 
 function busyBtn(btn, label){ if(!btn) return; btn._html=btn.innerHTML; btn.disabled=true; btn.innerHTML=label; }
 function unbusyBtn(btn){ if(!btn || btn._html==null) return; btn.disabled=false; btn.innerHTML=btn._html; }
-
-/* 기구 1개로 한 내 기록 (날짜별) */
-function openEquipLog(name){
-  var sh = $('eqLogModal');
-  if(!sh){ sh=document.createElement('div'); sh.id='eqLogModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
-  sh.innerHTML =
-    '<div class="modalbg" onclick="closeEquipLog()"></div>'
-    + '<div class="modalbox">'
-    +   '<div class="modalhead"><b>📈 ' + esc(name) + ' · 내 기록</b><button class="xbtn" onclick="closeEquipLog()">✕</button></div>'
-    +   '<div class="modalbody" id="eqLogBody"><p class="muted">불러오는 중…</p></div>'
-    + '</div>';
-  sh.classList.add('on');
-  call('equipLog', name).then(function(logs){
-    var body = $('eqLogBody'); if(!body) return;
-    if(!logs || !logs.length){ body.innerHTML = '<p class="muted">아직 이 기구로 기록한 게 없어요.</p>'; return; }
-    // 최고무게 한 줄 요약
-    var top = 0; logs.forEach(function(l){ l.sets.forEach(function(s){ if((Number(s.weight)||0)>top) top=Number(s.weight)||0; }); });
-    body.innerHTML = '<div class="savedline" style="margin-bottom:12px">🔥 최고 무게 ' + top + 'kg</div>'
-      + logs.map(function(l){
-        var sets = l.sets.map(function(s){ return (s.weight||0)+'kg×'+(s.reps||0); }).join(', ');
-        return '<div class="eqlogrow"><div class="eqlogdate">' + esc(l.date) + (l.move?' · '+esc(l.move):'') + '</div>'
-          + '<div class="eqlogsets">' + esc(sets) + '</div></div>';
-      }).join('');
-  }).catch(function(e){ var b=$('eqLogBody'); if(b) b.innerHTML='<p class="muted">오류: '+esc(e&&e.message||e)+'</p>'; });
-}
-function closeEquipLog(){ var sh=$('eqLogModal'); if(sh) sh.classList.remove('on'); }
 
 /* ====================================================================
  * 운동 일지 — 달력 (부부 둘 다 색으로 표시) + 날짜 클릭 상세
@@ -776,6 +756,7 @@ function drawCalendar(){
     + '<div class="calgrid">'+cells+'</div>'
     + '<p class="muted" style="margin-top:10px">운동한 날을 누르면 그날 기록이 보여요.</p>'
     + '</div>';
+  icons();
 }
 
 /* 그날 상세 모달 */
@@ -863,7 +844,7 @@ function drawTrend(){
     '<div class="card">'
     +   '<div class="row" style="justify-content:space-between;align-items:center">'
     +     '<h2 style="margin:0">성과 분석</h2>'
-    +     '<button class="pillbtn" onclick="openShare()">📤 공유</button>'
+    +     '<button class="pillbtn" onclick="openShare()">' + ic('share-2') + ' 공유</button>'
     +   '</div>'
     +   trendRangeBtns()
     +   '<div class="statline">'
@@ -876,7 +857,7 @@ function drawTrend(){
     + '</div>'
 
     + '<div class="card">'
-    +   '<h2>🏋 무게 변화</h2>'
+    +   '<h2>' + ic('dumbbell') + ' 무게 변화</h2>'
     +   (equipKeys.length
         ? '<select class="bigsel" onchange="TREND_EQUIP=this.value;drawTrend()">'
             + equipKeys.map(function(k){ return '<option value="' + esc(k) + '"' + (k===TREND_EQUIP?' selected':'') + '>' + esc(k) + '</option>'; }).join('')
@@ -885,15 +866,16 @@ function drawTrend(){
     + '</div>'
 
     + '<div class="card">'
-    +   '<h2>🏃 런닝 변화</h2>'
+    +   '<h2>' + ic('footprints') + ' 런닝 변화</h2>'
     +   (d.running.length ? '<div class="chartwrap tall"><canvas id="cRun"></canvas></div>'
                          : '<p class="muted">이 기간엔 런닝 기록이 없어요.</p>')
     + '</div>'
 
     + '<div class="card">'
-    +   '<h2>📅 주간 운동 횟수</h2>'
+    +   '<h2>' + ic('calendar-days') + ' 주간 운동 횟수</h2>'
     +   '<div class="chartwrap"><canvas id="cWeek"></canvas></div>'
     + '</div>';
+  icons();
 
   if(!window.Chart){ return; }
   TREND_CHARTS.forEach(function(c){ try{c.destroy();}catch(e){} }); TREND_CHARTS = [];
@@ -1039,7 +1021,7 @@ function openShare(){
     +       rangeBtn('today','오늘') + rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('all','전체')
     +     '</div>'
     +     '<div class="picker"><div class="picklabel">배경 사진 (선택 안 하면 기본 배경)</div>'
-    +       '<button class="photobtn" onclick="openSharePhoto()">📷 배경 사진 넣기</button>'
+    +       '<button class="photobtn" onclick="openSharePhoto()">' + ic('camera') + ' 배경 사진 넣기</button>'
     +       '<input type="file" accept="image/*" id="file_share" class="hiddenfile">'
     +       '<input type="file" accept="image/*" capture="environment" id="cam_share" class="hiddenfile">'
     +     '</div>'
@@ -1051,6 +1033,7 @@ function openShare(){
   sh.classList.add('on');
   wireSharePhoto();
   renderShareCard();
+  icons();
 }
 function rangeBtn(v,label){ return '<button class="button ' + (SHARE_RANGE===v?'accent':'ghost') + '" style="flex:1;padding:12px 4px;font-size:13px" onclick="SHARE_RANGE=\'' + v + '\';refreshShareSeg();renderShareCard()">' + esc(label) + '</button>'; }
 function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('today','오늘')+rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('all','전체'); }
@@ -1069,10 +1052,10 @@ function openPhotoSheetFor(key){
   if(!sh){ sh=document.createElement('div'); sh.id='photoSheet'; sh.className='sheetwrap'; document.body.appendChild(sh); }
   sh.innerHTML='<div class="sheetbg" onclick="closePhotoSheet()"></div>'
     + '<div class="sheetbox"><div class="sheettitle">배경 사진</div>'
-    + '<button class="sheetitem" onclick="pickFile(\'' + key + '\',true)">📸 카메라로 촬영</button>'
-    + '<button class="sheetitem" onclick="pickFile(\'' + key + '\',false)">🏞️ 앨범에서 선택</button>'
+    + '<button class="sheetitem" onclick="pickFile(\'' + key + '\',true)">' + ic('camera') + ' 카메라로 촬영</button>'
+    + '<button class="sheetitem" onclick="pickFile(\'' + key + '\',false)">' + ic('image') + ' 앨범에서 선택</button>'
     + '<button class="sheetitem cancel" onclick="closePhotoSheet()">취소</button></div>';
-  sh.classList.add('on');
+  sh.classList.add('on'); icons();
 }
 
 /* 9:16 카드를 캔버스에 그림 (미리보기 = 저장과 동일) */
@@ -1114,7 +1097,9 @@ function renderShareCard(){
     var y=560;
     bigStat(ctx, pad, y, s.sessions, '회', '운동 횟수');
     bigStat(ctx, pad, y+260, s.km, 'km', '런닝 거리');
-    bigStat(ctx, pad, y+520, s.sets, '세트', '총 세트 (상체 ' + s.upper.sets + ' · 하체 ' + s.lower.sets + ')');
+    // 총 세트 + 아래에 총 kg (상/하체)
+    var totKg = (s.upper.kg||0) + (s.lower.kg||0);
+    bigStat(ctx, pad, y+520, s.sets, '세트', '총 ' + addComma(totKg) + 'kg  (상체 ' + addComma(s.upper.kg) + ' · 하체 ' + addComma(s.lower.kg) + ')');
 
     // 최고기록
     var by=560+780;

@@ -18,5 +18,5 @@ window.APP_CONFIG = {
 // 아내 이메일이 정해지면 아래에 추가하세요. (Firestore 보안 규칙에도 같이 넣어야 함)
 window.ALLOWED_USERS = {
   'zxcv6309@gmail.com': '남편',
-  // 'wife@gmail.com': '아내',
+  'uyj1204@naver.com': '아내',
 };
