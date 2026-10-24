@@ -138,23 +138,38 @@ function renderHome(){
 }
 
 var FEED = [];
+/* 공백 일수 → 재밌는 멘트 (부부가 서로 보는 재미) */
+function offComment(f){
+  if(!f.hasAny) return { emo:'💪', line:'첫 오운완을 기다리고 있어요!' };
+  var d = f.daysOff;
+  if(d <= 1) return { emo:'🤫', line:'어제는 휴일이였나봐요? 운동 쉿!' };
+  if(d === 2) return { emo:'🐷', line:'슬슬 돼지가 되고 있나봐요?' };
+  if(d === 3) return { emo:'😢', line:'운동화가 울고 있어요…' };
+  if(d <= 5) return { emo:'👀', line:'헬스장이 당신을 그리워해요…' };
+  if(d <= 9) return { emo:'🫠', line:'근육이 녹는 중… 어서 돌아와요!' };
+  return { emo:'🛌', line:'혹시 겨울잠 자는 중? 일어나요!' };
+}
 function renderFeed(){
   var g = $('feedGrid'); if(!g) return;
   g.innerHTML = FEED.map(function(f, i){
-    var inner = f.thumb
-      ? '<img src="' + esc(f.thumb) + '" class="feedimg">'
-      : '<div class="feedimg feednoimg">🏋<span>아직 없어요</span></div>';
-    var sub = f.thumb ? (esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '')) : '기록을 기다려요';
-    return '<button class="feedcard" ' + (f.thumb ? 'onclick="openFeedPhoto(' + i + ')"' : 'disabled') + '>'
-      + inner
-      + '<div class="feedcap"><b>' + esc(f.who) + '</b><span>' + sub + '</span></div>'
-      + '</button>';
+    if(f.hasPhoto){
+      return '<button class="feedcard" onclick="openFeedPhoto(' + i + ')">'
+        + '<img src="' + esc(f.thumb) + '" class="feedimg">'
+        + '<div class="feedcap"><b>' + esc(f.who) + '</b><span>어제 · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</span></div>'
+        + '</button>';
+    }
+    var c = offComment(f);
+    var since = f.hasAny ? ('마지막 운동 ' + f.daysOff + '일 전') : '아직 기록 없음';
+    return '<div class="feedcard feedmsg" aria-disabled="true">'
+      + '<div class="feedimg feednoimg"><span class="emo">' + c.emo + '</span><span class="line">' + esc(c.line) + '</span></div>'
+      + '<div class="feedcap"><b>' + esc(f.who) + '</b><span>' + esc(since) + '</span></div>'
+      + '</div>';
   }).join('');
 }
 
 /* 피드 사진 확대 팝업 */
 function openFeedPhoto(i){
-  var f = FEED[i]; if(!f || !f.thumb) return;
+  var f = FEED[i]; if(!f || !f.hasPhoto) return;
   // 드라이브 썸네일 URL의 크기(sz=w400)를 키워 큰 화면용으로
   var big = String(f.thumb).replace(/sz=w\d+/, 'sz=w1000');
   var sh = $('feedModal');

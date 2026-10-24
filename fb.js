@@ -192,18 +192,32 @@
     return ss.filter((s) => !filter || s.who === filter).map((s) => sessionView(s, runs, wts));
   }
 
-  /* ---------- 홈 피드: 각 사람의 최신 오운완 사진 ---------- */
+  /* ---------- 홈 피드: 어제 오운완 (없으면 공백 일수 계산) ---------- */
   async function latestFinish() {
     requireUser();
     const people = Object.values(USERS);
-    // 오운완 사진이 있는 세션만, 최신순
     const ss = await col('sessions').orderBy('date', 'desc').limit(60).get().then(docsOf);
-    const out = [];
-    people.forEach((p) => {
-      const hit = ss.find((s) => s.who === p && s.finishThumb);
-      out.push({ who: p, date: hit ? hit.date : '', workout: hit ? (hit.workout || '') : '', thumb: hit ? hit.finishThumb : '', url: hit ? (hit.finishPhoto || hit.finishThumb) : '' });
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yd = new Date(today); yd.setDate(yd.getDate() - 1);
+    const ymdOf = (d) => d.toISOString().slice(0, 10);
+    const yesterday = ymdOf(yd);
+
+    return people.map((p) => {
+      // 그 사람의 오운완 있는 세션들 (최신순)
+      const mine = ss.filter((s) => s.who === p && s.finishThumb);
+      const y = mine.find((s) => String(s.date).slice(0, 10) === yesterday);
+      if (y) {
+        return { who: p, hasPhoto: true, date: y.date, workout: y.workout || '', thumb: y.finishThumb, url: y.finishPhoto || y.finishThumb, daysOff: 0 };
+      }
+      // 어제 건 없음 → 마지막 오운완이 며칠 전인지
+      const last = mine[0];
+      let daysOff = 999;
+      if (last) {
+        const ld = new Date(String(last.date).slice(0, 10) + 'T00:00:00');
+        daysOff = Math.round((today - ld) / 86400000);   // 오늘 기준 며칠 전
+      }
+      return { who: p, hasPhoto: false, date: last ? last.date : '', daysOff, hasAny: !!last };
     });
-    return out;   // [{who,date,workout,thumb,url}, ...]
   }
 
   /* ---------- 발전 추이용 원자료 ---------- */
