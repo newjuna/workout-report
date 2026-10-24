@@ -221,3 +221,26 @@ select{-webkit-appearance:none;appearance:none;
 /* 공유 카드 미리보기 (9:16) */
 .sharepreview{width:100%;max-width:260px;margin:14px auto;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#000}
 .sharepreview canvas{width:100%;height:auto;display:block}
+
+/* ===== 홈 오운완 피드 (1×1 두 칸) ===== */
+.feedgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
+.feedcard{padding:0;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--card2);cursor:pointer;text-align:left;transition:.15s;display:flex;flex-direction:column}
+.feedcard:hover:not(:disabled){border-color:var(--main);transform:translateY(-2px)}
+.feedcard:active:not(:disabled){transform:scale(.98)}
+.feedcard:disabled{cursor:default;opacity:.75}
+.feedimg{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;background:var(--card)}
+.feednoimg{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:34px;color:var(--sub)}
+.feednoimg span{font-size:12px;font-weight:600}
+.feedcap{padding:10px 12px}
+.feedcap b{display:block;font-size:14px;color:var(--text)}
+.feedcap span{display:block;font-size:12px;color:var(--sub);margin-top:2px}
+
+/* ===== 사진 확대 라이트박스 ===== */
+.lightbox{position:fixed;inset:0;z-index:110;display:none}
+.lightbox.on{display:flex;align-items:center;justify-content:center;padding:20px}
+.lb-bg{position:absolute;inset:0;background:#000d;animation:fade .2s}
+.lb-inner{position:relative;max-width:560px;width:100%;animation:pop .22s cubic-bezier(.34,1.3,.6,1)}
+.lb-img{width:100%;height:auto;max-height:80vh;object-fit:contain;border-radius:16px;display:block}
+.lb-cap{text-align:center;color:var(--text);font-size:14px;margin-top:12px}
+.lb-cap b{color:var(--main)}
+.lb-x{position:absolute;top:-6px;right:-6px;width:40px;height:40px;border:0;border-radius:50%;background:var(--card);color:var(--text);font-size:17px;cursor:pointer;box-shadow:var(--shadow);z-index:2}

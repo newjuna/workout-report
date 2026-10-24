@@ -192,6 +192,20 @@
     return ss.filter((s) => !filter || s.who === filter).map((s) => sessionView(s, runs, wts));
   }
 
+  /* ---------- 홈 피드: 각 사람의 최신 오운완 사진 ---------- */
+  async function latestFinish() {
+    requireUser();
+    const people = Object.values(USERS);
+    // 오운완 사진이 있는 세션만, 최신순
+    const ss = await col('sessions').orderBy('date', 'desc').limit(60).get().then(docsOf);
+    const out = [];
+    people.forEach((p) => {
+      const hit = ss.find((s) => s.who === p && s.finishThumb);
+      out.push({ who: p, date: hit ? hit.date : '', workout: hit ? (hit.workout || '') : '', thumb: hit ? hit.finishThumb : '', url: hit ? (hit.finishPhoto || hit.finishThumb) : '' });
+    });
+    return out;   // [{who,date,workout,thumb,url}, ...]
+  }
+
   /* ---------- 발전 추이용 원자료 ---------- */
   async function trendData() {
     requireUser();
@@ -203,7 +217,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData };
+  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));

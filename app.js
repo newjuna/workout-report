@@ -118,14 +118,57 @@ function renderHome(){
   $('home').innerHTML =
     '<div class="card">'
     + '<h2>안녕하세요, ' + esc(ME.name) + '님 👋</h2>'
-    + '<p class="desc">오늘 운동을 기록하고, 지난 기록과 비교해 발전을 확인해요.</p>'
+    + '<p class="desc">부부의 최근 오운완을 확인하고, 오늘 운동을 기록해요.</p>'
     + '</div>'
     + '<div class="card">'
-    + '<h2>오늘 운동 기록하기</h2>'
-    + '<p class="desc">런닝머신 → 웨이트(기구별) → 오운완 사진 순서로, 끝날 때마다 바로 저장돼요.</p>'
-    + '<button class="button accent" style="width:100%;margin-top:12px" onclick="switchTab(\'log\')">＋ 오늘 운동 시작</button>'
+    +   '<h2>📸 우리의 최근 오운완</h2>'
+    +   '<div id="feedGrid" class="feedgrid"><p class="muted">불러오는 중…</p></div>'
+    + '</div>'
+    + '<div class="card">'
+    +   '<div class="row" style="gap:10px">'
+    +     '<button class="button accent" style="flex:2" onclick="switchTab(\'log\')">＋ 오늘 운동 시작</button>'
+    +     '<button class="button ghost" style="flex:1" onclick="openShare()">📤 공유</button>'
+    +   '</div>'
     + '</div>';
+  // 피드 로드
+  call('latestFinish').then(function(list){
+    FEED = list || [];
+    renderFeed();
+  }).catch(function(e){ var g=$('feedGrid'); if(g) g.innerHTML='<p class="muted">피드 오류: '+esc(e&&e.message||e)+'</p>'; });
 }
+
+var FEED = [];
+function renderFeed(){
+  var g = $('feedGrid'); if(!g) return;
+  g.innerHTML = FEED.map(function(f, i){
+    var inner = f.thumb
+      ? '<img src="' + esc(f.thumb) + '" class="feedimg">'
+      : '<div class="feedimg feednoimg">🏋<span>아직 없어요</span></div>';
+    var sub = f.thumb ? (esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '')) : '기록을 기다려요';
+    return '<button class="feedcard" ' + (f.thumb ? 'onclick="openFeedPhoto(' + i + ')"' : 'disabled') + '>'
+      + inner
+      + '<div class="feedcap"><b>' + esc(f.who) + '</b><span>' + sub + '</span></div>'
+      + '</button>';
+  }).join('');
+}
+
+/* 피드 사진 확대 팝업 */
+function openFeedPhoto(i){
+  var f = FEED[i]; if(!f || !f.thumb) return;
+  // 드라이브 썸네일 URL의 크기(sz=w400)를 키워 큰 화면용으로
+  var big = String(f.thumb).replace(/sz=w\d+/, 'sz=w1000');
+  var sh = $('feedModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='feedModal'; sh.className='lightbox'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="lb-bg" onclick="closeFeedPhoto()"></div>'
+    + '<div class="lb-inner">'
+    +   '<button class="lb-x" onclick="closeFeedPhoto()">✕</button>'
+    +   '<img src="' + esc(big) + '" class="lb-img">'
+    +   '<div class="lb-cap"><b>' + esc(f.who) + '</b> · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</div>'
+    + '</div>';
+  sh.classList.add('on');
+}
+function closeFeedPhoto(){ var sh=$('feedModal'); if(sh) sh.classList.remove('on'); }
 
 /* ====================================================================
  * 기록하기 화면
