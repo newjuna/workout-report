@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>운동 레포트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<!-- ===== 로그인 화면 ===== -->
+<div id="loginView" class="lv" hidden>
+  <main class="lbox">
+    <div class="lbrand"><i aria-hidden="true"></i>운동 레포트</div>
+    <h1 id="loginTitle">로그인</h1>
+    <p class="lsub" id="loginSub">구글 계정으로 로그인하세요.</p>
+    <button id="googleBtn" class="gbtn" onclick="doLogin()">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="">
+      Google로 로그인
+    </button>
+    <p id="loginStatus" class="lstatus" role="status" aria-live="polite"></p>
+    <div class="lhelp" id="loginHelp" hidden></div>
+    <div class="lver" id="loginVer">&nbsp;</div>
+  </main>
+</div>
+
+<!-- ===== 메인 앱 ===== -->
+<div id="appView" hidden>
+  <header class="topbar">
+    <div class="tb-in">
+      <div class="brand"><span class="dot" aria-hidden="true"></span><b>운동 레포트</b></div>
+      <div class="tb-r">
+        <span id="pageTitle" class="ptitle">오늘 운동</span>
+        <button id="menuBtn" class="menubtn" type="button" aria-label="메뉴 열기"
+          aria-expanded="false" aria-controls="drawer" onclick="toggleMenu()">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div id="scrim" class="scrim" onclick="toggleMenu(false)"></div>
+
+  <aside id="drawer" class="drawer" aria-label="메뉴" aria-hidden="true">
+    <div class="dr-head"><span>메뉴</span>
+      <button class="xbtn" type="button" onclick="toggleMenu(false)" aria-label="메뉴 닫기">✕</button>
+    </div>
+    <div id="identity" class="who">계정 확인 중…</div>
+    <nav class="tabs" id="navTabs">
+      <button data-tab="home" class="active" onclick="switchTab('home')">🏠 오늘 운동</button>
+      <button data-tab="log"  onclick="switchTab('log')">📋 기록하기</button>
+      <button data-tab="list" onclick="switchTab('list')">🗂 운동 일지</button>
+      <button data-tab="equip" onclick="switchTab('equip')">🏋 기구 목록</button>
+      <button data-tab="trend" onclick="switchTab('trend')">📈 발전 추이</button>
+    </nav>
+    <button class="logout" type="button" onclick="logout()">로그아웃</button>
+    <div class="dr-foot">운동 레포트 · <span id="footVer"></span></div>
+  </aside>
+
+  <main class="main">
+    <section id="home"></section>
+    <section id="log"  class="hidden"></section>
+    <section id="list" class="hidden"></section>
+    <section id="equip" class="hidden"></section>
+    <section id="trend" class="hidden"></section>
+    <div class="appver" id="appVer"></div>
+  </main>
+</div>
+
+<div class="cover" id="cover"><div class="loadbox"><div class="spin"></div><div id="loadMsg">처리 중…</div></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="fb.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
