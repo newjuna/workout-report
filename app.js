@@ -1009,29 +1009,40 @@ function renderTrend(){
 }
 
 /* 날짜 도우미 */
-function weekAgo(n){ var d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+function weekAgo(n){ var d=new Date(); d.setDate(d.getDate()-n); return localYmdStr(d); }
 function ymd(s){ return String(s||'').slice(0,10); }
 
-function rangeFrom(range){ return statFrom(range); }
-/* 기간으로 필터한 데이터 */
+/* 기간으로 필터한 데이터 (custom이면 TREND_FROM~TREND_TO) */
 function trendInRange(){
-  var from = rangeFrom(TREND_RANGE);
+  var b = rangeBounds(TREND_RANGE, TREND_FROM, TREND_TO);
+  var from=b.from, to=b.to;
   return {
-    running: (TREND.running||[]).filter(function(r){ return ymd(r.date) >= from; }),
-    weights: (TREND.weights||[]).filter(function(w){ return ymd(w.date) >= from; }),
+    running: (TREND.running||[]).filter(function(r){ var x=ymd(r.date); return x>=from && x<=to; }),
+    weights: (TREND.weights||[]).filter(function(w){ var x=ymd(w.date); return x>=from && x<=to; }),
     people: TREND.people||[],
   };
 }
+var TREND_FROM = '', TREND_TO = '';
 function trendRangeBtns(){
-  var opts = [['today','오늘'],['week','1주'],['month','1달'],['all','전체']];
-  return '<div class="seg" style="margin:14px 0 0">' + opts.map(function(o){
-    return '<button class="chipbtn' + (TREND_RANGE===o[0]?' on':'') + '" onclick="TREND_RANGE=\'' + o[0] + '\';drawTrend()">' + o[1] + '</button>';
+  var opts = [['today','오늘'],['week','1주'],['month','1달'],['custom','기간 선택']];
+  var seg = '<div class="seg" style="margin:14px 0 0">' + opts.map(function(o){
+    return '<button class="chipbtn' + (TREND_RANGE===o[0]?' on':'') + '" onclick="trendSetRange(\'' + o[0] + '\')">' + o[1] + '</button>';
   }).join('') + '</div>';
+  if(TREND_RANGE==='custom'){
+    if(!TREND_TO) TREND_TO = todayStr(); if(!TREND_FROM) TREND_FROM = weekAgo(6);
+    seg += '<div class="daterange">'
+      + '<input type="date" value="' + esc(TREND_FROM) + '" max="' + todayStr() + '" onchange="TREND_FROM=this.value;drawTrend()">'
+      + '<span>~</span>'
+      + '<input type="date" value="' + esc(TREND_TO) + '" max="' + todayStr() + '" onchange="TREND_TO=this.value;drawTrend()">'
+      + '</div>';
+  }
+  return seg;
 }
+function trendSetRange(v){ TREND_RANGE=v; if(v==='custom'){ if(!TREND_TO) TREND_TO=todayStr(); if(!TREND_FROM) TREND_FROM=weekAgo(6); } drawTrend(); }
 
 function drawTrend(){
   var d = trendInRange();
-  var stat = computeStat(TREND, TREND_RANGE);
+  var stat = computeStat(TREND, TREND_RANGE, TREND_FROM, TREND_TO);
   var equipKeys = equipKeyList(d.weights);
   if(equipKeys.indexOf(TREND_EQUIP) < 0) TREND_EQUIP = equipKeys[0] || '';
 
@@ -1223,7 +1234,7 @@ function openShare(){
     +   '<div class="modalhead"><b>📤 운동 카드 공유</b><button class="xbtn" onclick="closeShare()">✕</button></div>'
     +   '<div class="modalbody">'
     +     '<div class="seg" id="shareRange">'
-    +       rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('custom','기간 선택')
+    +       rangeBtn('today','오늘') + rangeBtn('week','이번 주') + rangeBtn('month','이번 달') + rangeBtn('custom','기간 선택')
     +     '</div>'
     +     '<div id="shareCustom">' + shareCustomHtml() + '</div>'
     +     '<div class="picker"><div class="picklabel">배경 사진 (선택 안 하면 기본 배경)</div>'
@@ -1242,7 +1253,7 @@ function openShare(){
   icons();
 }
 function rangeBtn(v,label){ return '<button class="button ' + (SHARE_RANGE===v?'accent':'ghost') + '" style="flex:1;padding:12px 4px;font-size:13px" onclick="shareSetRange(\'' + v + '\')">' + esc(label) + '</button>'; }
-function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('custom','기간 선택'); }
+function refreshShareSeg(){ $('shareRange').innerHTML = rangeBtn('today','오늘')+rangeBtn('week','이번 주')+rangeBtn('month','이번 달')+rangeBtn('custom','기간 선택'); }
 function shareSetRange(v){ SHARE_RANGE=v; refreshShareSeg(); var c=$('shareCustom'); if(c) c.innerHTML=shareCustomHtml(); renderShareCard(); }
 function shareCustomHtml(){
   if(SHARE_RANGE!=='custom') return '';
@@ -1279,8 +1290,8 @@ function renderShareCard(){
   var W=1080, H=1920; cv.width=W; cv.height=H;
   var ctx = cv.getContext('2d');
   var s = computeStat(TREND, SHARE_RANGE, SHARE_FROM, SHARE_TO);
-  var title = SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '운동 요약';
-  var showSessions = (SHARE_RANGE==='week' || SHARE_RANGE==='month');   // 오늘·짧은기간엔 횟수 숨김
+  var title = SHARE_RANGE==='today' ? '오늘' : SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '운동 요약';
+  var showSessions = (SHARE_RANGE==='week' || SHARE_RANGE==='month');   // 오늘·기간선택엔 운동 횟수 숨김
   var periodTxt = mdSlash(s.from) + ' ~ ' + mdSlash(s.to);
 
   function paint(bgImg){
