@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF3.0';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF3.2';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -18,9 +18,21 @@
   const db = firebase.firestore();
   let USER = null;   // { uid, email, name }
 
-  const USERS = window.ALLOWED_USERS || {};
+  const USERS = window.ALLOWED_USERS || {};   // 이메일 → 기본 이름 (허용 목록)
   const lower = (v) => String(v || '').trim().toLowerCase();
-  const nameOf = (email) => USERS[lower(email)] || '';
+  /* 표시 이름은 Firestore profiles 컬렉션에서 관리 (앱에서 변경 가능)
+   * PROFILES = [{ email, name, uid }] — config 순서 유지 */
+  let PROFILES = Object.keys(USERS).map((e) => ({ email: lower(e), name: USERS[e], uid: '' }));
+  const profileOf = (email) => PROFILES.filter((p) => p.email === lower(email))[0];
+  const nameOf = (email) => { const p = profileOf(email); return p ? p.name : ''; };
+  const peopleNames = () => PROFILES.map((p) => p.name);
+  /* 기록의 지금 표시 이름 (uid로 찾고, 없으면 저장된 이름) */
+  const whoName_ = (rec) => { const p = PROFILES.filter((x) => x.uid && x.uid === rec.uid)[0]; return p ? p.name : rec.who; };
+  /* 기록이 그 사람 것인가: uid 우선, 없으면 이름으로 */
+  const isWho = (rec, name) => {
+    const p = PROFILES.filter((x) => x.name === name)[0];
+    return !!p && ((p.uid && rec.uid === p.uid) || rec.who === name);
+  };
   const now = () => new Date().toISOString();
   // 로컬(기기) 기준 yyyy-MM-dd — toISOString(UTC)은 자정 근처에 하루 밀리므로 사용 금지
   const localYmd = (d) => { const z = (n) => (n < 10 ? '0' : '') + n; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); };
@@ -30,13 +42,68 @@
 
   /* ---------- 로그인 ---------- */
   const authReady = new Promise((res) => {
-    auth.onAuthStateChanged((u) => {
-      if (u && nameOf(u.email)) USER = { uid: u.uid, email: lower(u.email), name: nameOf(u.email) };
-      else USER = null;
+    auth.onAuthStateChanged(async (u) => {
+      USER = null;
+      if (u && profileOf(u.email)) {
+        USER = { uid: u.uid, email: lower(u.email), name: nameOf(u.email) };
+        try { await loadProfiles_(); } catch (e) {}
+        USER.name = nameOf(u.email);
+      }
       res(USER);
       if (window.onAuthChanged) window.onAuthChanged(USER, u);
     });
   });
+
+  /* profiles 불러오기 + 내 프로필이 없으면 만들고 내 기록 이름을 맞춤(1회) */
+  async function loadProfiles_() {
+    const snap = await db.collection('profiles').get();
+    snap.docs.forEach((d) => {
+      const p = profileOf(d.id); const v = d.data() || {};
+      if (p) { if (v.name) p.name = v.name; if (v.uid) p.uid = v.uid; }
+    });
+    const me = profileOf(USER.email);
+    const exists = snap.docs.some((d) => d.id === USER.email);
+    if (!exists || me.uid !== USER.uid) {
+      me.uid = USER.uid;
+      await db.collection('profiles').doc(USER.email).set({ name: me.name, uid: USER.uid, updatedAt: now() }, { merge: true });
+      if (!exists) await syncMyName_(me.name);   // 예전 이름(주나/남편 등)으로 남은 내 기록을 새 이름으로
+    }
+  }
+
+  /* 내 기록 전체의 이름(who/owner)을 name으로 맞춤 */
+  async function syncMyName_(name) {
+    const uid = USER.uid;
+    const groups = await Promise.all([
+      db.collection('sessions').where('uid', '==', uid).get(),
+      db.collection('running').where('uid', '==', uid).get(),
+      db.collection('weights').where('uid', '==', uid).get(),
+      db.collection('equipment').where('uid', '==', uid).get(),
+      db.collection('moves').where('uid', '==', uid).get(),
+    ]);
+    const docs = [];
+    groups.forEach((g, gi) => g.docs.forEach((d) => {
+      const field = gi >= 3 ? 'owner' : 'who';
+      if (d.data()[field] !== name) docs.push({ ref: d.ref, field });
+    }));
+    for (let i = 0; i < docs.length; i += 400) {
+      const b = db.batch();
+      docs.slice(i, i + 400).forEach((x) => b.update(x.ref, { [x.field]: name }));
+      await b.commit();
+    }
+  }
+
+  /* [화면] 내 표시 이름 변경 → 내 기록 전체에 반영 */
+  async function renameMe(newName) {
+    requireUser();
+    const name = String(newName || '').trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 10);
+    if (!name) fail('이름을 입력해 주세요.');
+    if (PROFILES.some((p) => p.email !== USER.email && p.name === name)) fail('상대방과 같은 이름은 쓸 수 없어요.');
+    await db.collection('profiles').doc(USER.email).set({ name, uid: USER.uid, updatedAt: now() }, { merge: true });
+    await syncMyName_(name);
+    profileOf(USER.email).name = name;
+    USER.name = name;
+    return { ok: true, name, people: peopleNames() };
+  }
 
   async function signIn() {
     const p = new firebase.auth.GoogleAuthProvider();
@@ -274,7 +341,7 @@
       (byEquip[k] = byEquip[k] || { equip: r.equip, move: r.move || '', part: r.part, sets: [] }).sets.push({ weight: r.weight, reps: r.reps });
     });
     return {
-      id: s.id, date: s.date, who: s.who, workout: s.workout || '',
+      id: s.id, date: s.date, who: whoName_(s), workout: s.workout || '',
       finishThumb: s.finishThumbData || s.finishThumb || '',   // base64 우선(CORS 없음)
       finishPhoto: s.finishPhoto || '', finishVideo: s.finishVideo || '', finishType: s.finishType || (s.finishPhoto ? 'photo' : ''),
       running: myRun.map((r) => ({ min: r.min, km: r.km, incline: r.incline, speed: r.speed, kcal: r.kcal, photo: r.photo })),
@@ -292,35 +359,38 @@
   }
   async function listSessions(who) {
     requireUser();
-    const people = Object.values(USERS);
+    const people = peopleNames();
     const filter = people.indexOf(who) >= 0 ? who : '';
     const [ss, runs, wts] = await Promise.all([
       col('sessions').orderBy('date', 'desc').get().then(docsOf),
       col('running').get().then(docsOf),
       col('weights').get().then(docsOf),
     ]);
-    return ss.filter((s) => !filter || s.who === filter).map((s) => sessionView(s, runs, wts));
+    return ss.filter((s) => !filter || isWho(s, filter)).map((s) => sessionView(s, runs, wts));
   }
 
   /* ---------- 홈 피드: 어제 오운완 (없으면 공백 일수 계산) ---------- */
   async function latestFinish() {
     requireUser();
-    const people = Object.values(USERS);
+    const people = peopleNames();
     const ss = await col('sessions').orderBy('date', 'desc').limit(60).get().then(docsOf);
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const yd = new Date(today); yd.setDate(yd.getDate() - 1);
     const ymdOf = localYmd;              // 한국 로컬 날짜 (UTC 밀림 방지)
     const yesterday = ymdOf(yd);
+    const todayS = ymdOf(today);
 
     const thumbOf = (s) => s.finishThumbData || s.finishThumb || '';
     const hasFin = (s) => !!(s.finishThumbData || s.finishThumb);
     return people.map((p) => {
       // 그 사람의 오운완(사진/영상) 있는 세션들 (최신순)
-      const mine = ss.filter((s) => s.who === p && hasFin(s));
-      const y = mine.find((s) => String(s.date).slice(0, 10) === yesterday);
+      const mine = ss.filter((s) => isWho(s, p) && hasFin(s));
+      // 오늘 올린 게 있으면 오늘 것, 없으면 어제 것
+      const t = mine.find((s) => String(s.date).slice(0, 10) === todayS);
+      const y = t || mine.find((s) => String(s.date).slice(0, 10) === yesterday);
       if (y) {
-        return { who: p, hasPhoto: true, date: y.date, workout: y.workout || '', thumb: thumbOf(y),
-          video: y.finishVideo || '', type: y.finishType || 'photo', url: y.finishPhoto || y.finishVideo || '', daysOff: 0 };
+        return { who: p, hasPhoto: true, when: t ? '오늘' : '어제', date: y.date, workout: y.workout || '', thumb: thumbOf(y),
+          video: y.finishVideo || '', type: y.finishType || 'photo', url: y.finishPhoto || y.finishVideo || '', daysOff: t ? 0 : 1 };
       }
       // 어제 건 없음 → 마지막 오운완이 며칠 전인지
       const last = mine[0];
@@ -338,7 +408,7 @@
     const u = requireUser();
     const name = tidy(equipName, 60);
     const all = await col('weights').where('equip', '==', name).get().then(docsOf);
-    const mine = all.filter((w) => w.who === u.name);
+    const mine = all.filter((w) => w.uid === u.uid);
     // 날짜+동작 단위로 묶기
     const byKey = {};
     mine.sort((a, b) => (a.setNo || 0) - (b.setNo || 0)).forEach((w) => {
@@ -351,12 +421,12 @@
   /* ---------- 특정 날짜의 부부 오운완 (VS 콜라주용) ---------- */
   async function dayFinish(date) {
     requireUser();
-    const people = Object.values(USERS);
+    const people = peopleNames();
     const d = String(date || '').slice(0, 10);
     const ss = await col('sessions').where('date', '==', d).get().then(docsOf);
     // 각 사람: 오운완 사진 세션 우선, 없으면 운동만 한 세션, 둘 다 없으면 쉼
     return people.map((p) => {
-      const mine = ss.filter((s) => s.who === p);
+      const mine = ss.filter((s) => isWho(s, p));
       const withFin = mine.find((s) => s.finishThumbData || s.finishThumb);
       if (withFin) return { who: p, state: 'photo', date: d, workout: withFin.workout || '',
         thumb: withFin.finishThumbData || withFin.finishThumb, type: withFin.finishType || 'photo' };
@@ -369,8 +439,8 @@
   async function finishHistory(who) {
     requireUser();
     const ss = await col('sessions').orderBy('date', 'desc').get().then(docsOf);
-    return ss.filter((s) => s.who === who && (s.finishThumbData || s.finishThumb))
-      .map((s) => ({ who: s.who, date: s.date, workout: s.workout || '',
+    return ss.filter((s) => isWho(s, who) && (s.finishThumbData || s.finishThumb))
+      .map((s) => ({ who: who, date: s.date, workout: s.workout || '',
         thumb: s.finishThumbData || s.finishThumb, video: s.finishVideo || '', type: s.finishType || 'photo', url: s.finishPhoto || s.finishVideo || '' }));
   }
 
@@ -498,11 +568,13 @@
       col('running').get().then(docsOf),
       col('weights').get().then(docsOf),
     ]);
-    return { running: runs, weights: wts, people: Object.values(USERS) };
+    // 이름 바뀌기 전 기록도 지금 이름으로 맞춰서 내려줌 (uid 기준)
+    const fixWho = (r) => { const p = PROFILES.filter((x) => x.uid && x.uid === r.uid)[0]; if (p) r.who = p.name; return r; };
+    return { running: runs.map(fixWho), weights: wts.map(fixWho), people: peopleNames() };
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
@@ -512,7 +584,7 @@
     ok: true, version: VERSION, workouts: WORKOUTS, parts: BODY_PARTS,
     authReady, signIn, signOut, call,
     me: () => USER,
-    people: () => Object.values(USERS),
+    people: () => peopleNames(),
     partGroup,
   };
 })();

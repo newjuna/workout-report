@@ -95,6 +95,7 @@ window.addEventListener('DOMContentLoaded', function(){
 window.onAuthChanged = function(user, rawUser){
   if(user){
     ME = { email:user.email, name:user.name };
+    PEOPLE = FB.people() || [];   // 저장된 표시 이름 반영
     $('loginView').hidden = true;
     $('appView').hidden = false;
     $('identity').innerHTML = '<b>' + esc(ME.name) + '</b><br>' + esc(ME.email);
@@ -276,7 +277,7 @@ function renderFeed(){
       var badge = f.type==='video' ? '<span class="playbadge">▶</span>' : '';
       return '<div class="feedcard">'
         + '<div class="feedclick" style="position:relative" onclick="openFeedPhoto(' + i + ')"><img src="' + esc(f.thumb) + '" class="feedimg">' + badge + '</div>'
-        + '<div class="feedcap"><b>' + esc(f.who) + '</b>' + cal + '<span>어제 · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</span></div>'
+        + '<div class="feedcap"><b>' + esc(f.who) + '</b>' + cal + '<span>' + esc(f.when || '어제') + ' · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</span></div>'
         + '</div>';
     }
     var c = offComment(f);
@@ -1628,7 +1629,7 @@ function openPinPad(){
   sh.innerHTML =
     '<div class="modalbg" onclick="closePin()"></div>'
     + '<div class="modalbox" style="max-width:340px">'
-    +   '<div class="modalhead"><b>' + ic('lock') + ' 기록 관리</b><button class="xbtn" onclick="closePin()">✕</button></div>'
+    +   '<div class="modalhead"><b>' + ic('lock') + ' 시스템 수정</b><button class="xbtn" onclick="closePin()">✕</button></div>'
     +   '<div class="modalbody" style="text-align:center">'
     +     '<p class="muted" style="margin:0 0 16px">비밀번호 4자리를 입력하세요</p>'
     +     '<div class="pindots" id="pinDots"></div>'
@@ -1661,7 +1662,7 @@ function pinPress(k){
   PIN_BUF += k; renderPinDots();
   if(PIN_BUF.length===4){
     setTimeout(function(){
-      if(PIN_BUF===MANAGE_PIN){ closePin(); openManage(); }
+      if(PIN_BUF===MANAGE_PIN){ closePin(); openSystem(); }
       else { PIN_BUF=''; renderPinDots(); toast('비밀번호가 틀렸어요'); }
     }, 150);
   }
@@ -1712,4 +1713,58 @@ function doDeleteSelected(){
     MANAGE_SEL={};
     call('listMySessions').then(function(list){ MANAGE_SESS=list||[]; renderManageList(); });
   }).catch(function(e){ cover(false); toast('삭제 실패: ' + (e&&e.message||e)); });
+}
+
+
+/* ====================================================================
+ * 시스템 수정 메뉴 (PIN 통과 후) — 기록 관리 / 이름 변경
+ * ==================================================================== */
+function openSystem(){
+  var sh = $('sysModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='sysModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeSystem()"></div>'
+    + '<div class="modalbox" style="max-width:380px">'
+    +   '<div class="modalhead"><b>⚙ 시스템 수정</b><button class="xbtn" onclick="closeSystem()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     '<button class="sysitem" onclick="closeSystem();openManage()">' + ic('trash-2') + '<span><b>기록 관리</b><small>내 운동 기록을 골라서 삭제</small></span></button>'
+    +     '<button class="sysitem" onclick="closeSystem();openRename()">' + ic('user-pen') + '<span><b>이름 변경</b><small>지금 이름: ' + esc(ME.name) + '</small></span></button>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on'); icons();
+}
+function closeSystem(){ var sh=$('sysModal'); if(sh) sh.classList.remove('on'); }
+
+/* 이름 변경 (로그인한 본인 이름만) */
+function openRename(){
+  var sh = $('renameModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='renameModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeRename()"></div>'
+    + '<div class="modalbox" style="max-width:380px">'
+    +   '<div class="modalhead"><b>이름 변경</b><button class="xbtn" onclick="closeRename()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     '<div class="field"><label>내 이름 (최대 10자)</label><input id="renameInput" maxlength="10" value="' + esc(ME.name) + '"></div>'
+    +     '<p class="muted" style="margin:0 0 12px">바꾸면 지난 기록, 오운완 카드, 대결 화면까지 전부 새 이름으로 나와요. 상대방 이름은 상대방이 직접 바꿔요.</p>'
+    +     '<button class="button accent" style="width:100%" onclick="submitRename(event)">저장</button>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on');
+  var inp=$('renameInput'); if(inp){ inp.focus(); inp.select(); }
+}
+function closeRename(){ var sh=$('renameModal'); if(sh) sh.classList.remove('on'); }
+function submitRename(ev){
+  var name = ($('renameInput').value||'').trim();
+  if(!name){ toast('이름을 입력해 주세요.'); return; }
+  if(name === ME.name){ closeRename(); return; }
+  var btn = ev && ev.target ? ev.target : null; busyBtn(btn,'저장 중…');
+  cover(true,'이름 바꾸는 중…');
+  call('renameMe', name).then(function(r){
+    cover(false);
+    ME.name = r.name; PEOPLE = r.people || PEOPLE;
+    $('identity').innerHTML = '<b>' + esc(ME.name) + '</b><br>' + esc(ME.email);
+    TREND = null;   // 성과분석 캐시 비움 (새 이름으로 다시 불러오기)
+    closeRename(); toast('이름을 "' + ME.name + '"(으)로 바꿨어요.');
+    switchTab(CUR_TAB);
+  }).catch(function(e){ cover(false); unbusyBtn(btn); toast('변경 실패: ' + (e&&e.message||e)); });
 }

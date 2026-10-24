@@ -16,7 +16,8 @@ window.APP_CONFIG = {
 
 // 이 앱을 쓸 수 있는 사람 (구글 이메일 → 표시 이름)
 // 아내 이메일이 정해지면 아래에 추가하세요. (Firestore 보안 규칙에도 같이 넣어야 함)
+// 이름은 처음 한 번만 쓰이는 기본값이에요. 이후엔 앱의 '시스템 수정 → 이름 변경'에서 바꿔요.
 window.ALLOWED_USERS = {
-  'zxcv6309@gmail.com': '주나',
-  'uyj1204@naver.com': '뉸두',
+  'zxcv6309@gmail.com': '똠양꿍',
+  'uyj1204@naver.com': '엄브렐라',
 };
