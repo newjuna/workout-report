@@ -379,8 +379,20 @@ function renderLogStart(){
     +   WORKOUTS.map(function(w){ return '<button class="wchip' + (START_WORKOUT===w?' on':'') + '" onclick="pickWorkout(\'' + esc(w) + '\')">' + esc(w) + '</button>'; }).join('')
     + '</div></div>'
     + '<button class="button accent" style="width:100%;margin-top:6px" onclick="doStartSession()">시작하기</button>'
-    + '<p class="muted" style="margin-top:10px">입력하는 동안 자동으로 임시 저장돼요. 중간에 나갔다 와도 그대로 남아요. 마지막에 "운동 완료"를 눌러야 최종 저장됩니다.</p>'
-    + '</div>';
+    + '</div>'
+    + '<div class="card hintcard" id="hintCard"><div class="muted">지난 운동 확인 중…</div></div>';
+  call('workoutHint').then(function(h){
+    var el=$('hintCard'); if(!el) return;
+    el.innerHTML = '<div class="hinticon">' + ic('lightbulb') + '</div><div class="hintline">' + hintText(h) + '</div>';
+    icons();
+  }).catch(function(){ var el=$('hintCard'); if(el) el.remove(); });
+}
+/* 마지막 운동 → 추천 멘트 (핵심은 라임 강조) */
+function hintText(h){
+  if(!h || h.type==='none') return '첫 운동을 기록해봐요! 오늘 어떤 부위를 해볼까요? 💪';
+  var last = hl(h.lastWorkout);
+  if(h.daysAgo <= 1) return '어제는 ' + last + ' 운동을 했어요. 오늘은 다른 부위를 해볼까요? 🔥';
+  return hl(h.daysAgo + '일 전') + '에 ' + last + ' 운동을 했어요. 오늘 다시 가볍게 시작해봐요! 💪';
 }
 function pickWorkout(w){ START_WORKOUT = (START_WORKOUT===w?'':w);
   Array.prototype.forEach.call(document.querySelectorAll('#wchips .wchip'), function(b){ b.classList.toggle('on', b.textContent===START_WORKOUT); });

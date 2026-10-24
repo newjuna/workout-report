@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF2.6';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF2.7';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -374,6 +374,19 @@
         thumb: s.finishThumbData || s.finishThumb, video: s.finishVideo || '', type: s.finishType || 'photo', url: s.finishPhoto || s.finishVideo || '' }));
   }
 
+  /* ---------- 기록하기 시작 화면용: 내 마지막 운동 힌트 ---------- */
+  async function workoutHint() {
+    const u = requireUser();
+    const ss = await col('sessions').where('uid', '==', u.uid).get().then(docsOf);
+    const mine = ss.filter((s) => s.workout).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    if (!mine.length) return { type: 'none' };
+    const last = mine[0];
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const ld = new Date(String(last.date).slice(0, 10) + 'T00:00:00');
+    const daysAgo = Math.round((today - ld) / 86400000);
+    return { type: 'ok', lastWorkout: last.workout, daysAgo: daysAgo, date: last.date };
+  }
+
   /* ---------- 기록 관리: 본인 세션 목록 ---------- */
   async function listMySessions() {
     const u = requireUser();
@@ -489,7 +502,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, listMySessions, deleteSessions };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
