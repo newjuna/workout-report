@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF1.7';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF1.8';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -53,21 +53,22 @@
 
   function requireUser() { if (!USER) fail('로그인이 필요합니다.'); return USER; }
 
-  /* ---------- 사진 중계 (Apps Script) ---------- */
-  async function uploadPhoto(kind, photo) {
+  /* ---------- 파일 중계 (Apps Script → 구글 드라이브) ---------- */
+  async function uploadMedia(kind, media) {
     const u = requireUser();
     const url = String((window.APP_CONFIG || {}).APPS_SCRIPT_URL || '').trim();
-    if (!url) fail('사진 저장 서버(Apps Script) 주소가 config.js에 없습니다.');
+    if (!url) fail('저장 서버(Apps Script) 주소가 config.js에 없습니다.');
     const idToken = await auth.currentUser.getIdToken();
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ op: 'photo', idToken, kind, who: u.name, photo }),
+      body: JSON.stringify({ op: 'photo', idToken, kind, who: u.name, photo: media }),
     });
     const o = await r.json().catch(() => null);
-    if (!o || !o.ok) fail((o && o.error) || '사진 저장 실패');
+    if (!o || !o.ok) fail((o && o.error) || '저장 실패');
     return o;   // { url, thumb }
   }
+  const uploadPhoto = (kind, photo) => uploadMedia(kind, photo);   // 기존 호출 호환
 
   /* ---------- Firestore 공통 ---------- */
   const col = (name) => db.collection(name);
@@ -151,12 +152,25 @@
     await batch.commit();
     return { ok: true, count: sets.length };
   }
-  async function addFinishPhoto(sid, photo) {
+  /* 오운완 저장 (사진 또는 영상)
+   *  media = { kind:'photo'|'video', data(base64), thumbData(작은 base64 썸네일) }
+   *  - thumbData: CORS 없는 캔버스 드로잉용 (대결/피드 카드). Firestore에 바로 저장
+   */
+  async function addFinish(sid, media) {
     const u = requireUser(); const s = await mySession_(tidy(sid, 40));
-    if (!photo || !photo.data) fail('사진을 선택해 주세요.');
-    const saved = await uploadPhoto('오운완', photo);
-    await col('sessions').doc(s.id).update({ finishPhoto: saved.url || '', finishThumb: saved.thumb || '' });
-    return { ok: true, thumb: saved.thumb, url: saved.url };
+    media = media || {};
+    if (!media.data) fail('사진 또는 영상을 선택해 주세요.');
+    const isVideo = media.kind === 'video';
+    const saved = await uploadMedia(isVideo ? '오운완영상' : '오운완', media);
+    const patch = {
+      finishPhoto: isVideo ? '' : (saved.url || ''),
+      finishVideo: isVideo ? (saved.url || '') : '',
+      finishThumb: saved.thumb || '',               // 드라이브 썸네일(폴백)
+      finishThumbData: tidy(media.thumbData, 300000), // 작은 base64 (CORS 없음)
+      finishType: isVideo ? 'video' : 'photo',
+    };
+    await col('sessions').doc(s.id).update(patch);
+    return { ok: true, thumb: saved.thumb, url: saved.url, type: patch.finishType };
   }
 
   /* ---------- 일지 조회 ---------- */
@@ -170,7 +184,8 @@
     });
     return {
       id: s.id, date: s.date, who: s.who, workout: s.workout || '',
-      finishThumb: s.finishThumb || '', finishPhoto: s.finishPhoto || '',
+      finishThumb: s.finishThumbData || s.finishThumb || '',   // base64 우선(CORS 없음)
+      finishPhoto: s.finishPhoto || '', finishVideo: s.finishVideo || '', finishType: s.finishType || (s.finishPhoto ? 'photo' : ''),
       running: myRun.map((r) => ({ min: r.min, km: r.km, incline: r.incline, speed: r.speed, kcal: r.kcal, photo: r.photo })),
       weights: Object.values(byEquip),
     };
@@ -206,12 +221,15 @@
     const ymdOf = localYmd;              // 한국 로컬 날짜 (UTC 밀림 방지)
     const yesterday = ymdOf(yd);
 
+    const thumbOf = (s) => s.finishThumbData || s.finishThumb || '';
+    const hasFin = (s) => !!(s.finishThumbData || s.finishThumb);
     return people.map((p) => {
-      // 그 사람의 오운완 있는 세션들 (최신순)
-      const mine = ss.filter((s) => s.who === p && s.finishThumb);
+      // 그 사람의 오운완(사진/영상) 있는 세션들 (최신순)
+      const mine = ss.filter((s) => s.who === p && hasFin(s));
       const y = mine.find((s) => String(s.date).slice(0, 10) === yesterday);
       if (y) {
-        return { who: p, hasPhoto: true, date: y.date, workout: y.workout || '', thumb: y.finishThumb, url: y.finishPhoto || y.finishThumb, daysOff: 0 };
+        return { who: p, hasPhoto: true, date: y.date, workout: y.workout || '', thumb: thumbOf(y),
+          video: y.finishVideo || '', type: y.finishType || 'photo', url: y.finishPhoto || y.finishVideo || '', daysOff: 0 };
       }
       // 어제 건 없음 → 마지막 오운완이 며칠 전인지
       const last = mine[0];
@@ -248,10 +266,11 @@
     // 각 사람: 오운완 사진 세션 우선, 없으면 운동만 한 세션, 둘 다 없으면 쉼
     return people.map((p) => {
       const mine = ss.filter((s) => s.who === p);
-      const withPhoto = mine.find((s) => s.finishThumb);
-      if (withPhoto) return { who: p, state: 'photo', date: d, workout: withPhoto.workout || '', thumb: withPhoto.finishThumb, url: withPhoto.finishPhoto || withPhoto.finishThumb };
-      if (mine.length) return { who: p, state: 'nophoto', date: d, workout: (mine[0].workout || '') };  // 운동은 함(사진만 없음)
-      return { who: p, state: 'rest', date: d };   // 쉼
+      const withFin = mine.find((s) => s.finishThumbData || s.finishThumb);
+      if (withFin) return { who: p, state: 'photo', date: d, workout: withFin.workout || '',
+        thumb: withFin.finishThumbData || withFin.finishThumb, type: withFin.finishType || 'photo' };
+      if (mine.length) return { who: p, state: 'nophoto', date: d, workout: (mine[0].workout || '') };
+      return { who: p, state: 'rest', date: d };
     });
   }
 
@@ -259,8 +278,9 @@
   async function finishHistory(who) {
     requireUser();
     const ss = await col('sessions').orderBy('date', 'desc').get().then(docsOf);
-    return ss.filter((s) => s.who === who && s.finishThumb)
-      .map((s) => ({ who: s.who, date: s.date, workout: s.workout || '', thumb: s.finishThumb, url: s.finishPhoto || s.finishThumb }));
+    return ss.filter((s) => s.who === who && (s.finishThumbData || s.finishThumb))
+      .map((s) => ({ who: s.who, date: s.date, workout: s.workout || '',
+        thumb: s.finishThumbData || s.finishThumb, video: s.finishVideo || '', type: s.finishType || 'photo', url: s.finishPhoto || s.finishVideo || '' }));
   }
 
   /* ---------- 발전 추이용 원자료 ---------- */
@@ -274,7 +294,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinishPhoto, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog };
+  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));

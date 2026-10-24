@@ -312,3 +312,20 @@ select{-webkit-appearance:none;appearance:none;
 .lb-cap{text-align:center;color:var(--text);font-size:14px;margin-top:12px}
 .lb-cap b{color:var(--main)}
 .lb-x{position:absolute;top:-6px;right:-6px;width:40px;height:40px;border:0;border-radius:50%;background:var(--card);color:var(--text);font-size:17px;cursor:pointer;box-shadow:var(--shadow);z-index:2}
+.lb-video{position:relative;width:100%;aspect-ratio:9/16;max-height:80vh;border-radius:16px;overflow:hidden;background:#000}
+.lb-video iframe{width:100%;height:100%;border:0}
+/* 영상 ▶ 뱃지 */
+.playbadge{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px}
+.finstage .finimg{display:block;width:100%;height:auto}
+
+/* ===== 체크리스트형 로딩 ===== */
+.lc-title{font-size:15px;font-weight:800;margin-bottom:14px}
+.lc-list{list-style:none;padding:0;margin:0 0 16px;text-align:left}
+.lc-list li{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:14px;color:var(--sub)}
+.lc-list li.done{color:var(--ok)}
+.lc-list li.cur{color:var(--text);font-weight:700}
+.lc-list li svg{width:18px;height:18px;flex-shrink:0}
+.lc-spin{width:16px;height:16px;border:2px solid var(--line2);border-top-color:var(--main);border-radius:50%;animation:sp .8s linear infinite;flex-shrink:0}
+.lc-barwrap{height:8px;background:var(--card2);border-radius:8px;overflow:hidden}
+.lc-bar{height:100%;width:0;background:linear-gradient(90deg,var(--main),var(--main-d));border-radius:8px;transition:width .3s}
+.lc-pct{font-size:20px;font-weight:900;color:var(--main);margin-top:10px}

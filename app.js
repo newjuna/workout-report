@@ -23,7 +23,49 @@ function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function toast(msg){ var t=$('toast'); t.textContent=msg; t.style.display='block';
   clearTimeout(toast._t); toast._t=setTimeout(function(){ t.style.display='none'; }, 2600); }
-function cover(on, msg){ var c=$('cover'); if(msg) $('loadMsg').textContent=msg; c.classList.toggle('on', !!on); }
+function cover(on, msg){
+  var c=$('cover');
+  // 단순 로딩(스피너+메시지)
+  var s=$('loadSimple'), cl=$('loadChecklist');
+  if(s) s.hidden=false; if(cl) cl.hidden=true;
+  if(msg) $('loadMsg').textContent=msg;
+  c.classList.toggle('on', !!on);
+}
+
+/* ---------- 체크리스트형 로딩 ---------- */
+var LC_STEPS = [], LC_CUR = '';
+function loadSteps(steps, firstKey){
+  LC_STEPS = steps.slice(); LC_CUR = firstKey || (steps[0]&&steps[0].k) || '';
+  $('loadSimple').hidden=true; $('loadChecklist').hidden=false;
+  $('cover').classList.add('on');
+  renderLoadList(); icons();
+}
+function renderLoadList(){
+  var doneBefore=true;
+  $('lcList').innerHTML = LC_STEPS.map(function(st){
+    var isCur = st.k===LC_CUR;
+    var done = st._done;
+    var icon = done ? ic('check-circle') : isCur ? '<span class="lc-spin"></span>' : ic('circle');
+    return '<li class="' + (done?'done':isCur?'cur':'wait') + '">' + icon + '<span>' + esc(st.t) + '</span></li>';
+  }).join('');
+  // 진행률 = 완료 단계 비율
+  var total=LC_STEPS.length, doneN=LC_STEPS.filter(function(s){return s._done;}).length;
+  var curBonus = LC_CUR ? 0.5 : 0;
+  var pct = Math.min(100, Math.round(((doneN+curBonus)/total)*100));
+  $('lcBar').style.width = pct+'%'; $('lcPct').textContent = pct+'%';
+  icons();
+}
+/* 현재 단계 완료 처리하고 다음(nextKey)으로. pct는 선택(미사용) */
+function loadStep(nextKey){
+  LC_STEPS.forEach(function(s){ if(s.k===LC_CUR) s._done=true; });
+  LC_CUR = nextKey || '';
+  renderLoadList();
+}
+function loadDone(){
+  LC_STEPS.forEach(function(s){ s._done=true; }); LC_CUR='';
+  renderLoadList();
+  setTimeout(function(){ $('cover').classList.remove('on'); }, 350);
+}
 function call(fn){ return FB.call.apply(FB, [fn].concat(Array.prototype.slice.call(arguments,1))); }
 
 /* ---------- 로그인 (Firebase Auth) ---------- */
@@ -202,8 +244,9 @@ function renderFeed(){
   g.innerHTML = FEED.map(function(f, i){
     var cal = '<button class="calbtn" title="지난 오운완 보기" onclick="event.stopPropagation();openFinishHistory(\'' + esc(f.who) + '\')">' + ic('calendar') + '</button>';
     if(f.hasPhoto){
+      var badge = f.type==='video' ? '<span class="playbadge">▶</span>' : '';
       return '<div class="feedcard">'
-        + '<div class="feedclick" onclick="openFeedPhoto(' + i + ')"><img src="' + esc(f.thumb) + '" class="feedimg"></div>'
+        + '<div class="feedclick" style="position:relative" onclick="openFeedPhoto(' + i + ')"><img src="' + esc(f.thumb) + '" class="feedimg">' + badge + '</div>'
         + '<div class="feedcap"><b>' + esc(f.who) + '</b>' + cal + '<span>어제 · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</span></div>'
         + '</div>';
     }
@@ -220,20 +263,35 @@ function renderFeed(){
 /* 피드 사진 확대 팝업 */
 function openFeedPhoto(i){
   var f = FEED[i]; if(!f || !f.hasPhoto) return;
-  // 드라이브 썸네일 URL의 크기(sz=w400)를 키워 큰 화면용으로
-  var big = String(f.thumb).replace(/sz=w\d+/, 'sz=w1000');
+  openMediaLightbox(f);
+}
+/* 사진/영상 확대 보기 (영상은 드라이브 preview iframe) */
+function openMediaLightbox(f){
   var sh = $('feedModal');
   if(!sh){ sh=document.createElement('div'); sh.id='feedModal'; sh.className='lightbox'; document.body.appendChild(sh); }
+  var inner;
+  if(f.type==='video' && f.url){
+    var prev = drivePreview(f.url);
+    inner = '<div class="lb-video"><iframe src="' + esc(prev) + '" allow="autoplay" allowfullscreen frameborder="0"></iframe></div>';
+  } else {
+    var big = String(f.thumb||'').indexOf('data:')===0 ? f.thumb : String(f.thumb||'').replace(/sz=w\d+/, 'sz=w1000');
+    inner = '<img src="' + esc(big) + '" class="lb-img">';
+  }
   sh.innerHTML =
     '<div class="lb-bg" onclick="closeFeedPhoto()"></div>'
     + '<div class="lb-inner">'
     +   '<button class="lb-x" onclick="closeFeedPhoto()">✕</button>'
-    +   '<img src="' + esc(big) + '" class="lb-img">'
+    +   inner
     +   '<div class="lb-cap"><b>' + esc(f.who) + '</b> · ' + esc(f.date) + (f.workout ? ' · ' + esc(f.workout) : '') + '</div>'
     + '</div>';
   sh.classList.add('on');
 }
-function closeFeedPhoto(){ var sh=$('feedModal'); if(sh) sh.classList.remove('on'); }
+/* 드라이브 보기 URL → preview(iframe 재생용) */
+function drivePreview(url){
+  var m = /\/d\/([A-Za-z0-9_-]+)/.exec(String(url||''));
+  return m ? 'https://drive.google.com/file/d/' + m[1] + '/preview' : url;
+}
+function closeFeedPhoto(){ var sh=$('feedModal'); if(sh){ sh.classList.remove('on'); sh.innerHTML=''; } }
 
 /* 지난 오운완 날짜별로 보기 (달력 버튼) */
 var HIST = [];
@@ -263,17 +321,7 @@ function openFinishHistory(who){
 function closeHist(){ var sh=$('histModal'); if(sh) sh.classList.remove('on'); }
 function openHistPhoto(i){
   var h = HIST[i]; if(!h) return;
-  var big = String(h.thumb).replace(/sz=w\d+/, 'sz=w1000');
-  var sh = $('feedModal');
-  if(!sh){ sh=document.createElement('div'); sh.id='feedModal'; sh.className='lightbox'; document.body.appendChild(sh); }
-  sh.innerHTML =
-    '<div class="lb-bg" onclick="closeFeedPhoto()"></div>'
-    + '<div class="lb-inner">'
-    +   '<button class="lb-x" onclick="closeFeedPhoto()">✕</button>'
-    +   '<img src="' + esc(big) + '" class="lb-img">'
-    +   '<div class="lb-cap"><b>' + esc(h.who) + '</b> · ' + esc(h.date) + (h.workout ? ' · ' + esc(h.workout) : '') + '</div>'
-    + '</div>';
-  sh.classList.add('on');
+  openMediaLightbox(h);
 }
 
 /* ====================================================================
@@ -351,12 +399,18 @@ function logBodyHtml(){
 
 function finishInner(){
   if(SAVED.finishThumb && !PHOTOBUF.fin){
-    return '<img src="' + esc(SAVED.finishThumb) + '" style="width:100%;max-width:300px;border-radius:16px">'
-      + '<button class="softbtn" style="margin-top:10px" onclick="PHOTOBUF.fin=null;FIN_TEXT=\'\';renderLogView()">다시 올리기</button>';
+    var done = (SAVED.finishType==='video')
+      ? '<div style="position:relative;max-width:220px"><img src="' + esc(SAVED.finishThumb) + '" style="width:100%;border-radius:16px"><span class="playbadge">▶</span></div>'
+      : '<img src="' + esc(SAVED.finishThumb) + '" style="width:100%;max-width:220px;border-radius:16px">';
+    return done + '<button class="softbtn" style="margin-top:10px" onclick="PHOTOBUF.fin=null;FIN_TEXT=\'\';renderLogView()">다시 올리기</button>';
   }
   if(PHOTOBUF.fin){
+    var isVid = PHOTOBUF.fin.kind==='video';
+    var media = isVid
+      ? '<video src="' + esc(PHOTOBUF.fin.data) + '" class="finimg" autoplay muted loop playsinline></video>'
+      : '<img src="' + esc(PHOTOBUF.fin.data) + '" class="finimg">';
     return '<div class="finstage" id="finStage">'
-      +   '<img src="' + esc(PHOTOBUF.fin.data) + '" class="finimg">'
+      +   media
       +   '<div class="finoverlay">'
       +     '<div class="fintext" id="finPreview">' + esc(FIN_TEXT || '') + '</div>'
       +     '<div class="finmeta">' + esc(SESS.date) + (SESS.workout ? ' · ' + esc(SESS.workout) : '') + ' · ' + esc(ME.name) + '</div>'
@@ -365,10 +419,84 @@ function finishInner(){
       + '<input id="finInput" class="fininput" maxlength="40" placeholder="오늘의 한마디 (예: 가슴 조졌다 💪)" value="' + esc(FIN_TEXT || '') + '" oninput="FIN_TEXT=this.value;document.getElementById(\'finPreview\').textContent=this.value">'
       + '<div class="row" style="margin-top:10px">'
       +   '<button class="button ghost" style="flex:1" onclick="PHOTOBUF.fin=null;FIN_TEXT=\'\';renderLogView()">취소</button>'
-      +   '<button class="button accent" style="flex:2" onclick="confirmFinish(event)">이 사진으로 저장</button>'
-      + '</div>';
+      +   '<button class="button accent" style="flex:2" onclick="confirmFinish(event)">이걸로 저장</button>'
+      + '</div>'
+      + (isVid ? '<p class="muted" style="margin-top:8px;text-align:center">영상은 문구가 미리보기에만 보이고, 저장 땐 영상 그대로 올라가요.</p>' : '');
   }
-  return photoPicker('fin', '오운완 사진 올리기');
+  // 사진 or 영상 선택 (오운완 전용)
+  return '<div class="picker">'
+    + '<div class="picklabel">오운완 올리기 (사진 또는 5초 영상)</div>'
+    + '<button class="photobtn" onclick="openFinSheet()">' + ic('camera') + ' 오운완 올리기</button>'
+    + '<input type="file" accept="image/*" id="file_finimg" class="hiddenfile">'
+    + '<input type="file" accept="image/*" capture="environment" id="cam_finimg" class="hiddenfile">'
+    + '<input type="file" accept="video/*" id="file_finvid" class="hiddenfile">'
+    + '<input type="file" accept="video/*" capture="environment" id="cam_finvid" class="hiddenfile">'
+    + '</div>';
+}
+
+/* 오운완 전용 선택 시트 (사진 촬영/앨범 + 영상 촬영/앨범) */
+function openFinSheet(){
+  var sh=$('photoSheet');
+  if(!sh){ sh=document.createElement('div'); sh.id='photoSheet'; sh.className='sheetwrap'; document.body.appendChild(sh); }
+  sh.innerHTML='<div class="sheetbg" onclick="closePhotoSheet()"></div>'
+    + '<div class="sheetbox"><div class="sheettitle">오운완 올리기</div>'
+    + '<button class="sheetitem" onclick="finPick(\'cam_finimg\')">' + ic('camera') + ' 사진 촬영</button>'
+    + '<button class="sheetitem" onclick="finPick(\'file_finimg\')">' + ic('image') + ' 사진 (앨범)</button>'
+    + '<button class="sheetitem" onclick="finPick(\'cam_finvid\')">' + ic('video') + ' 영상 촬영 (5초)</button>'
+    + '<button class="sheetitem" onclick="finPick(\'file_finvid\')">' + ic('film') + ' 영상 (앨범)</button>'
+    + '<button class="sheetitem cancel" onclick="closePhotoSheet()">취소</button></div>';
+  sh.classList.add('on'); icons();
+  wireFinInputs();
+}
+function finPick(id){ closePhotoSheet(); var el=$(id); if(el) el.click(); }
+function wireFinInputs(){
+  ['file_finimg','cam_finimg'].forEach(function(id){ var el=$(id); if(!el) return;
+    el.onchange=function(){ var f=el.files&&el.files[0]; if(!f) return;
+      shrinkImage(f, 1080, 0.82, function(data){ PHOTOBUF.fin={ kind:'photo', mime:'image/jpeg', data:data, thumbData:null };
+        makeThumbFromImage(data, function(t){ PHOTOBUF.fin.thumbData=t; }); FIN_TEXT=''; renderLogView(); }); };
+  });
+  ['file_finvid','cam_finvid'].forEach(function(id){ var el=$(id); if(!el) return;
+    el.onchange=function(){ var f=el.files&&el.files[0]; if(!f) return; handleFinVideo(f); };
+  });
+}
+/* 영상: 5초 검사 + 첫 프레임 썸네일 추출 */
+function handleFinVideo(file){
+  cover(true,'영상 확인 중…');
+  var url = URL.createObjectURL(file);
+  var v = document.createElement('video');
+  v.preload='metadata'; v.muted=true; v.playsInline=true;
+  v.onloadedmetadata=function(){
+    if(v.duration > 5.8){ cover(false); URL.revokeObjectURL(url); toast('영상은 5초 이내만 올릴 수 있어요'); return; }
+    // 첫 프레임 썸네일
+    v.currentTime = Math.min(0.1, v.duration/2);
+  };
+  v.onseeked=function(){
+    var cv=document.createElement('canvas');
+    var w=v.videoWidth, h=v.videoHeight, M=640;
+    if(Math.max(w,h)>M){ var r=M/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
+    cv.width=w; cv.height=h; cv.getContext('2d').drawImage(v,0,0,w,h);
+    var thumb=''; try{ thumb=cv.toDataURL('image/jpeg',0.7); }catch(e){}
+    // 영상 자체를 base64로
+    var reader=new FileReader();
+    reader.onload=function(){
+      cover(false);
+      PHOTOBUF.fin={ kind:'video', mime:file.type||'video/mp4', data:reader.result, thumbData:thumb };
+      FIN_TEXT=''; URL.revokeObjectURL(url); renderLogView();
+    };
+    reader.readAsDataURL(file);
+  };
+  v.onerror=function(){ cover(false); URL.revokeObjectURL(url); toast('영상을 읽지 못했어요'); };
+  v.src=url;
+}
+/* 사진 base64 → 작은 썸네일 base64 (CORS 없는 카드 드로잉용) */
+function makeThumbFromImage(dataUrl, done){
+  var im=new Image();
+  im.onload=function(){ var cv=document.createElement('canvas'); var w=im.width,h=im.height,M=500;
+    if(Math.max(w,h)>M){ var r=M/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
+    cv.width=w; cv.height=h; cv.getContext('2d').drawImage(im,0,0,w,h);
+    try{ done(cv.toDataURL('image/jpeg',0.72)); }catch(e){ done(''); } };
+  im.onerror=function(){ done(''); };
+  im.src=dataUrl;
 }
 
 function runText(r){
@@ -508,17 +636,37 @@ function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons()
 function openForm(kind){ OPEN=kind; renderLogView(); }
 
 function confirmFinish(ev){
-  if(!PHOTOBUF.fin){ toast('사진을 먼저 선택해 주세요.'); return; }
+  if(!PHOTOBUF.fin){ toast('사진 또는 영상을 먼저 선택해 주세요.'); return; }
   var btn = ev && ev.target ? ev.target : null; busyBtn(btn,'저장 중…');
-  cover(true,'사진 만드는 중…');
   var meta = SESS.date + (SESS.workout ? ' · ' + SESS.workout : '') + ' · ' + ME.name;
-  composePhoto(PHOTOBUF.fin.data, FIN_TEXT, meta, function(dataUrl){
-    var photo = { name:'오운완.jpg', mime:'image/jpeg', data:dataUrl };
-    call('addFinishPhoto', SID, photo).then(function(r){
-      cover(false); toast('오운완 저장 ✓');
-      SAVED.finishThumb = (r && r.thumb) || dataUrl;
+
+  if(PHOTOBUF.fin.kind==='video'){
+    // 영상: 그대로 업로드 (문구 합성 없음), 썸네일은 추출해둔 것
+    loadSteps([{k:'build',t:'영상 준비'},{k:'upload',t:'영상 올리는 중'},{k:'save',t:'기록 저장'}], 'build');
+    loadStep('upload', 10);
+    var media = { kind:'video', mime:PHOTOBUF.fin.mime||'video/mp4', data:PHOTOBUF.fin.data, thumbData:PHOTOBUF.fin.thumbData };
+    call('addFinish', SID, media).then(function(r){
+      loadStep('save'); loadDone();
+      toast('오운완 영상 저장 ✓');
+      SAVED.finishThumb = PHOTOBUF.fin.thumbData || (r&&r.thumb) || ''; SAVED.finishType='video';
       PHOTOBUF.fin=null; FIN_TEXT=''; renderLogView();
-    }).catch(function(e){ cover(false); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
+    }).catch(function(e){ loadDone(); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
+    return;
+  }
+
+  // 사진: 문구 합성 후 업로드
+  loadSteps([{k:'build',t:'사진에 문구 넣는 중'},{k:'upload',t:'사진 올리는 중'},{k:'save',t:'기록 저장'}], 'build');
+  composePhoto(PHOTOBUF.fin.data, FIN_TEXT, meta, function(dataUrl){
+    loadStep('upload', 10);
+    makeThumbFromImage(dataUrl, function(thumb){
+      var photo = { kind:'photo', name:'오운완.jpg', mime:'image/jpeg', data:dataUrl, thumbData:thumb };
+      call('addFinish', SID, photo).then(function(r){
+        loadStep('save'); loadDone();
+        toast('오운완 저장 ✓');
+        SAVED.finishThumb = thumb || (r && r.thumb) || dataUrl; SAVED.finishType='photo';
+        PHOTOBUF.fin=null; FIN_TEXT=''; renderLogView();
+      }).catch(function(e){ loadDone(); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
+    });
   });
 }
 /* 업로드 전 리사이즈 + JPEG 압축 (용량 최소화) → dataURL 콜백 */
@@ -813,8 +961,10 @@ function sessionSummaryRow(s, i){
 }
 
 /* 자세히 보기 — 세트별 전체 기록 */
+var DETAIL_S = null;
 function openSessionDetail(i){
   var s = DAY_LIST[i]; if(!s) return;
+  DETAIL_S = { who:s.who, date:s.date, workout:s.workout, type:s.finishType, thumb:s.finishThumb, url:s.finishVideo||s.finishPhoto };
   var sh = $('detailModal');
   if(!sh){ sh=document.createElement('div'); sh.id='detailModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
   var run = (s.running||[]).map(function(r){
@@ -835,7 +985,9 @@ function openSessionDetail(i){
     + '<div class="modalbox">'
     +   '<div class="modalhead"><b>' + esc(s.who) + ' · ' + esc(s.date) + (s.workout?' · '+esc(s.workout):'') + '</b><button class="xbtn" onclick="closeDetail()">✕</button></div>'
     +   '<div class="modalbody">'
-    +     (s.finishThumb ? '<img src="' + esc(s.finishThumb) + '" class="detphoto">' : '')
+    +     (s.finishThumb ? (s.finishType==='video'
+          ? '<div class="detphoto" style="position:relative;cursor:pointer" onclick="openMediaLightbox(DETAIL_S)"><img src="' + esc(s.finishThumb) + '" style="width:100%;border-radius:12px;display:block"><span class="playbadge">▶</span></div>'
+          : '<img src="' + esc(s.finishThumb) + '" class="detphoto">') : '')
     +     (run || '')
     +     (wt || '')
     +   '</div>'
@@ -1294,25 +1446,24 @@ function renderVsCard(){
     ctx.fillStyle='#1a1e27'; ctx.fill();
     if(d.state==='photo' && d.thumb){
       pending++;
-      var im=new Image(); im.crossOrigin='anonymous';
+      var im=new Image();
+      // base64면 CORS 없음(저장 가능). 혹시 드라이브 URL이면 crossOrigin 시도
+      if(String(d.thumb).indexOf('data:')!==0) im.crossOrigin='anonymous';
       im.onload=function(){
         ctx.save(); roundRect(ctx,x,y,cw,cellH,r); ctx.clip();
-        // cover
         var ir=im.width/im.height, cr=cw/cellH, sw,sh2,sx,sy;
         if(ir>cr){ sh2=im.height; sw=sh2*cr; sx=(im.width-sw)/2; sy=0; } else { sw=im.width; sh2=sw/cr; sx=0; sy=(im.height-sh2)/2; }
         ctx.drawImage(im, sx,sy,sw,sh2, x,y,cw,cellH);
-        // 하단 그라데이션 + 이름
         var gg=ctx.createLinearGradient(0,y+cellH-200,0,y+cellH); gg.addColorStop(0,'rgba(0,0,0,0)'); gg.addColorStop(1,'rgba(0,0,0,.75)');
         ctx.fillStyle=gg; ctx.fillRect(x,y+cellH-200,cw,200);
         ctx.fillStyle='#fff'; ctx.font='800 52px "Gothic A1",sans-serif'; ctx.textAlign='left';
         ctx.fillText(d.who + (d.workout?'  ·  '+d.workout:''), x+34, y+cellH-40);
+        if(d.type==='video'){ ctx.font='46px "Gothic A1",sans-serif'; ctx.fillText('▶', x+cw-70, y+60); }
         ctx.restore();
         finish();
       };
-      im.onerror=function(){ // 사진 못 불러오면 "완료" 칸으로
-        drawDoneCell(ctx,x,y,cw,cellH,d); finish();
-      };
-      im.src = String(d.thumb).replace(/sz=w\d+/, 'sz=w800');
+      im.onerror=function(){ drawDoneCell(ctx,x,y,cw,cellH,d); finish(); };
+      im.src = String(d.thumb).indexOf('data:')===0 ? d.thumb : String(d.thumb).replace(/sz=w\d+/, 'sz=w800');
     } else if(d.state==='nophoto'){
       drawDoneCell(ctx,x,y,cw,cellH,d);
     } else {
