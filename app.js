@@ -521,6 +521,24 @@ function confirmFinish(ev){
     }).catch(function(e){ cover(false); unbusyBtn(btn); toast('저장 실패: ' + (e&&e.message||e)); });
   });
 }
+/* 업로드 전 리사이즈 + JPEG 압축 (용량 최소화) → dataURL 콜백 */
+function shrinkImage(file, maxPx, quality, done){
+  var reader = new FileReader();
+  reader.onload = function(){
+    var img = new Image();
+    img.onload = function(){
+      var w=img.width, h=img.height;
+      if(Math.max(w,h) > maxPx){ var r=maxPx/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
+      var cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      try{ done(cv.toDataURL('image/jpeg', quality||0.82)); }
+      catch(e){ done(reader.result); }   // 혹시 실패하면 원본
+    };
+    img.onerror = function(){ done(reader.result); };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
 function composePhoto(src, text, meta, done){
   var img = new Image();
   img.onload = function(){
@@ -589,14 +607,12 @@ function wirePhotoButtons(){
       var input = $(pfx+key); if(!input) return;
       input.onchange = function(){
         var f = input.files && input.files[0]; if(!f) return;
-        var reader = new FileReader();
-        reader.onload = function(){
-          PHOTOBUF[key] = { name:f.name, mime:f.type, data:reader.result };
+        shrinkImage(f, 1080, 0.82, function(data){
+          PHOTOBUF[key] = { name:'photo.jpg', mime:'image/jpeg', data:data };
           if(key==='fin'){ FIN_TEXT=''; renderLogView(); return; }
           var prev = $('prev_'+key);
-          if(prev) prev.innerHTML = '<img src="' + reader.result + '" class="prevpic">';
-        };
-        reader.readAsDataURL(f);
+          if(prev) prev.innerHTML = '<img src="' + data + '" class="prevpic">';
+        });
       };
     });
   });
@@ -819,9 +835,9 @@ function openSessionDetail(i){
     + '<div class="modalbox">'
     +   '<div class="modalhead"><b>' + esc(s.who) + ' · ' + esc(s.date) + (s.workout?' · '+esc(s.workout):'') + '</b><button class="xbtn" onclick="closeDetail()">✕</button></div>'
     +   '<div class="modalbody">'
+    +     (s.finishThumb ? '<img src="' + esc(s.finishThumb) + '" class="detphoto">' : '')
     +     (run || '')
     +     (wt || '')
-    +     (s.finishThumb ? '<img src="' + esc(s.finishThumb) + '" style="width:100%;border-radius:14px;margin-top:10px">' : '')
     +   '</div>'
     + '</div>';
   sh.classList.add('on'); icons();
@@ -1074,7 +1090,7 @@ function wireSharePhoto(){
   ['file_share','cam_share'].forEach(function(id){
     var input=$(id); if(!input) return;
     input.onchange=function(){ var f=input.files&&input.files[0]; if(!f) return;
-      var rd=new FileReader(); rd.onload=function(){ SHARE_PHOTO={data:rd.result}; renderShareCard(); }; rd.readAsDataURL(f); };
+      shrinkImage(f, 1080, 0.82, function(data){ SHARE_PHOTO={data:data}; renderShareCard(); }); };
   });
 }
 /* 공유 모달용 사진 시트 (앨범/카메라) */
@@ -1182,7 +1198,8 @@ function downloadShare(){
  * ==================================================================== */
 var VS_DATE = '';     // 보고 있는 날짜 (기본: 어제)
 var VS_DATA = null;   // [{who,state,thumb,workout}, ...]
-function yesterdayStr(){ var d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+function yesterdayStr(){ var d=new Date(); d.setDate(d.getDate()-1); return localYmdStr(d); }
+function localYmdStr(d){ var z=function(n){return(n<10?'0':'')+n;}; return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate()); }
 
 function openVersus(){
   VS_DATE = yesterdayStr();
@@ -1214,8 +1231,8 @@ function loadVs(){
 }
 function vsShift(delta){
   var d=new Date(VS_DATE+'T00:00:00'); d.setDate(d.getDate()+delta);
-  var ns=d.toISOString().slice(0,10);
-  if(ns > new Date().toISOString().slice(0,10)) { toast('아직 오지 않은 날이에요'); return; }
+  var ns=localYmdStr(d);
+  if(ns > todayStr()) { toast('아직 오지 않은 날이에요'); return; }
   VS_DATE=ns; var lbl=$('vsDateLbl'); if(lbl) lbl.textContent=VS_DATE;
   cover(true,'불러오는 중…');
   call('dayFinish', VS_DATE).then(function(list){ cover(false); VS_DATA=list||[]; renderVsCard(); })

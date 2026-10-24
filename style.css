@@ -232,6 +232,8 @@ select{-webkit-appearance:none;appearance:none;
 .setline:first-of-type{border-top:0}
 .setline span{color:var(--sub);font-weight:600}
 .setline b{color:var(--text)}
+/* 상세 모달 사진: 작게 (모바일 한눈에) */
+.detphoto{width:100%;max-width:200px;border-radius:12px;margin:0 auto 12px;display:block}
 
 /* 기구별 내 기록 모달 행 */
 .eqlogrow{border-bottom:1px solid var(--line);padding:11px 0}
