@@ -87,8 +87,26 @@ button{font:inherit}
 .tabs button{text-align:left;padding:14px 15px;border-radius:14px;font-weight:600;color:var(--sub);background:none;border:0;font-size:15px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:.15s}
 .tabs button:hover{background:var(--card2);color:var(--text)}
 .tabs button.active{background:linear-gradient(90deg,rgba(198,244,50,.16),rgba(198,244,50,.04));color:var(--main);box-shadow:inset 3px 0 0 var(--main)}
-.logout{margin:auto 16px 16px;padding:13px;border:1px solid var(--line);border-radius:14px;background:var(--card2);font-size:14px;font-weight:700;color:var(--text);cursor:pointer;transition:.15s}
+.manage{margin:auto 16px 8px;padding:13px;border:1px solid var(--line);border-radius:14px;background:var(--card2);font-size:14px;font-weight:700;color:var(--text);cursor:pointer;transition:.15s}
+.manage:hover{border-color:var(--main);color:var(--main)}
+.logout{margin:0 16px 16px;padding:13px;border:1px solid var(--line);border-radius:14px;background:var(--card2);font-size:14px;font-weight:700;color:var(--text);cursor:pointer;transition:.15s}
 .logout:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ===== PIN 패드 ===== */
+.pindots{display:flex;justify-content:center;gap:16px;margin:4px 0 22px}
+.pindot{width:14px;height:14px;border-radius:50%;border:2px solid var(--line2);background:transparent;transition:.15s}
+.pindot.on{background:var(--main);border-color:var(--main)}
+.pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.pinkey{padding:18px 0;border:1px solid var(--line);border-radius:14px;background:var(--card2);color:var(--text);font-size:22px;font-weight:700;cursor:pointer;transition:.1s}
+.pinkey:hover{background:var(--line)}
+.pinkey:active{transform:scale(.95);background:var(--main);color:var(--ink)}
+
+/* ===== 기록 관리 행 ===== */
+.mrow{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;margin:8px 0;background:var(--card2);cursor:pointer}
+.mrow input{width:22px;height:22px;flex-shrink:0;accent-color:var(--accent)}
+.mrow-t{flex:1;font-size:14px;line-height:1.5}
+.button.danger{background:var(--accent);color:#fff;box-shadow:none}
+.button.danger:disabled{opacity:.4}
 .dr-foot{padding:14px 20px;font-size:12px;color:#5b6472;border-top:1px solid var(--line)}
 
 /* ===== 본문 ===== */

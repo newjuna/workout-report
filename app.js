@@ -1512,3 +1512,106 @@ function downloadVs(){
     toast('저장 완료! 스토리에 올려보세요 📸');
   }catch(e){ toast('사진 보안 때문에 저장이 막혔어요. 캡처로 저장해 주세요.'); }
 }
+
+
+/* ====================================================================
+ * 기록 관리 (삭제) — PIN 0000 → 본인 세션 체크 삭제
+ * ==================================================================== */
+var MANAGE_PIN = '0000';   // 공용 PIN (원하면 바꾸기)
+var PIN_BUF = '';
+var MANAGE_SESS = [];      // 본인 세션 목록
+var MANAGE_SEL = {};       // 선택된 세션 id
+
+function openPinPad(){
+  toggleMenu(false);
+  PIN_BUF = '';
+  var sh = $('pinModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='pinModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closePin()"></div>'
+    + '<div class="modalbox" style="max-width:340px">'
+    +   '<div class="modalhead"><b>' + ic('lock') + ' 기록 관리</b><button class="xbtn" onclick="closePin()">✕</button></div>'
+    +   '<div class="modalbody" style="text-align:center">'
+    +     '<p class="muted" style="margin:0 0 16px">비밀번호 4자리를 입력하세요</p>'
+    +     '<div class="pindots" id="pinDots"></div>'
+    +     '<div class="pinpad" id="pinPad"></div>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on');
+  renderPinDots();
+  renderPinPad();
+  icons();
+}
+function closePin(){ var sh=$('pinModal'); if(sh) sh.classList.remove('on'); }
+function renderPinDots(){
+  var el=$('pinDots'); if(!el) return;
+  var s=''; for(var i=0;i<4;i++){ s += '<span class="pindot' + (i<PIN_BUF.length?' on':'') + '"></span>'; }
+  el.innerHTML = s;
+}
+function renderPinPad(){
+  var el=$('pinPad'); if(!el) return;
+  var keys=['1','2','3','4','5','6','7','8','9','','0','del'];
+  el.innerHTML = keys.map(function(k){
+    if(k==='') return '<span></span>';
+    if(k==='del') return '<button class="pinkey" onclick="pinPress(\'del\')">⌫</button>';
+    return '<button class="pinkey" onclick="pinPress(\'' + k + '\')">' + k + '</button>';
+  }).join('');
+}
+function pinPress(k){
+  if(k==='del'){ PIN_BUF = PIN_BUF.slice(0,-1); renderPinDots(); return; }
+  if(PIN_BUF.length>=4) return;
+  PIN_BUF += k; renderPinDots();
+  if(PIN_BUF.length===4){
+    setTimeout(function(){
+      if(PIN_BUF===MANAGE_PIN){ closePin(); openManage(); }
+      else { PIN_BUF=''; renderPinDots(); toast('비밀번호가 틀렸어요'); }
+    }, 150);
+  }
+}
+
+/* 기록 관리 화면 (본인 세션만) */
+function openManage(){
+  MANAGE_SEL = {};
+  var sh = $('manageModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='manageModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeManage()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>' + ic('trash-2') + ' 기록 삭제 (' + esc(ME.name) + ')</b><button class="xbtn" onclick="closeManage()">✕</button></div>'
+    +   '<div class="modalbody" id="manageBody"><p class="muted">불러오는 중…</p></div>'
+    + '</div>';
+  sh.classList.add('on');
+  call('listMySessions').then(function(list){
+    MANAGE_SESS = list || [];
+    renderManageList();
+  }).catch(function(e){ var b=$('manageBody'); if(b) b.innerHTML='<p class="muted">오류: '+esc(e&&e.message||e)+'</p>'; });
+}
+function closeManage(){ var sh=$('manageModal'); if(sh) sh.classList.remove('on'); }
+function renderManageList(){
+  var b=$('manageBody'); if(!b) return;
+  if(!MANAGE_SESS.length){ b.innerHTML='<p class="muted">삭제할 기록이 없어요.</p>'; return; }
+  var selCount = Object.keys(MANAGE_SEL).length;
+  b.innerHTML =
+    '<p class="muted" style="margin:0 0 10px">지울 날짜를 체크한 뒤 삭제하세요. (사진도 함께 지워져요)</p>'
+    + MANAGE_SESS.map(function(s){
+      var bits=[]; if(s.nRun) bits.push('런닝'); if(s.nEquip) bits.push('웨이트 '+s.nEquip); if(s.hasPhoto) bits.push('오운완');
+      return '<label class="mrow">'
+        + '<input type="checkbox" ' + (MANAGE_SEL[s.id]?'checked':'') + ' onchange="toggleManage(\'' + s.id + '\')">'
+        + '<div class="mrow-t"><b>' + esc(s.date) + '</b>' + (s.workout?' <span class="muted">· '+esc(s.workout)+'</span>':'') + '<br><span class="muted">' + esc(bits.join(' · ')||'기록') + '</span></div>'
+        + '</label>';
+    }).join('')
+    + '<button class="button danger" style="width:100%;margin-top:14px"' + (selCount?'':' disabled') + ' onclick="doDeleteSelected()">' + ic('trash-2') + ' 선택 삭제 (' + selCount + ')</button>';
+  icons();
+}
+function toggleManage(id){ if(MANAGE_SEL[id]) delete MANAGE_SEL[id]; else MANAGE_SEL[id]=1; renderManageList(); }
+function doDeleteSelected(){
+  var ids = Object.keys(MANAGE_SEL);
+  if(!ids.length) return;
+  if(!confirm(ids.length + '개 날짜의 기록을 삭제할까요? 사진까지 완전히 지워지고 되돌릴 수 없어요.')) return;
+  cover(true, '삭제 중…');
+  call('deleteSessions', ids).then(function(r){
+    cover(false); toast((r&&r.deleted||0) + '개 삭제 완료');
+    MANAGE_SEL={};
+    call('listMySessions').then(function(list){ MANAGE_SESS=list||[]; renderManageList(); });
+  }).catch(function(e){ cover(false); toast('삭제 실패: ' + (e&&e.message||e)); });
+}

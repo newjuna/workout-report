@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF2.2';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF2.3';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -280,6 +280,64 @@
         thumb: s.finishThumbData || s.finishThumb, video: s.finishVideo || '', type: s.finishType || 'photo', url: s.finishPhoto || s.finishVideo || '' }));
   }
 
+  /* ---------- 기록 관리: 본인 세션 목록 ---------- */
+  async function listMySessions() {
+    const u = requireUser();
+    const [ss, runs, wts] = await Promise.all([
+      col('sessions').where('uid', '==', u.uid).get().then(docsOf),
+      col('running').where('uid', '==', u.uid).get().then(docsOf),
+      col('weights').where('uid', '==', u.uid).get().then(docsOf),
+    ]);
+    return ss.sort((a, b) => String(b.date).localeCompare(String(a.date))).map((s) => {
+      const nRun = runs.filter((r) => r.sessionId === s.id).length;
+      const eq = {}; wts.filter((w) => w.sessionId === s.id).forEach((w) => { eq[w.equip] = 1; });
+      return { id: s.id, date: s.date, workout: s.workout || '',
+        hasPhoto: !!(s.finishThumbData || s.finishThumb), nRun: nRun, nEquip: Object.keys(eq).length };
+    });
+  }
+
+  /* 드라이브 보기 URL → fileId */
+  function fileIdOf_(url) { const m = /\/d\/([A-Za-z0-9_-]+)/.exec(String(url || '')); return m ? m[1] : ''; }
+
+  /* ---------- 기록 관리: 본인 세션 삭제 (Firestore + 드라이브 사진) ---------- */
+  async function deleteSessions(ids) {
+    const u = requireUser();
+    ids = (Array.isArray(ids) ? ids : []).map((x) => String(x));
+    if (!ids.length) return { ok: true, deleted: 0 };
+
+    const [ss, runs, wts] = await Promise.all([
+      col('sessions').where('uid', '==', u.uid).get().then((s) => s.docs),
+      col('running').where('uid', '==', u.uid).get().then((s) => s.docs),
+      col('weights').where('uid', '==', u.uid).get().then((s) => s.docs),
+    ]);
+    const mine = ss.filter((d) => ids.indexOf(d.id) >= 0 && d.data().uid === u.uid);  // 내 것만
+    if (!mine.length) fail('삭제할 기록을 찾을 수 없습니다.');
+    const idSet = {}; mine.forEach((d) => { idSet[d.id] = 1; });
+
+    // 드라이브에서 지울 사진 fileId 모으기 (오운완 + 런닝 사진)
+    const fileIds = [];
+    mine.forEach((d) => { const id = fileIdOf_(d.data().finishPhoto); if (id) fileIds.push(id); });
+    runs.forEach((d) => { if (idSet[d.data().sessionId]) { const id = fileIdOf_(d.data().photo); if (id) fileIds.push(id); } });
+
+    // Firestore 일괄 삭제 (세션 + 하위 running/weights)
+    const batch = db.batch();
+    mine.forEach((d) => batch.delete(d.ref));
+    runs.forEach((d) => { if (idSet[d.data().sessionId]) batch.delete(d.ref); });
+    wts.forEach((d) => { if (idSet[d.data().sessionId]) batch.delete(d.ref); });
+    await batch.commit();
+
+    // 드라이브 사진 삭제 (Apps Script 중계)
+    if (fileIds.length) {
+      try {
+        const url = String((window.APP_CONFIG || {}).APPS_SCRIPT_URL || '').trim();
+        const idToken = await auth.currentUser.getIdToken();
+        await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ op: 'delete', idToken, fileIds }) });
+      } catch (e) { /* 사진 삭제 실패해도 기록은 지워짐 */ }
+    }
+    return { ok: true, deleted: mine.length };
+  }
+
   /* ---------- 메인 비교 피드백 (내 최근 vs 그 전 같은 운동) ---------- */
   async function lastFeedback() {
     const u = requireUser();
@@ -337,7 +395,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback };
+  const API = { listGear, addEquipment, addMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, listMySessions, deleteSessions };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
