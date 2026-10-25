@@ -1300,7 +1300,10 @@ function drawTrend(){
   var wInfo = null, rInfo = null;
   if(isToday){
     // F. 오늘은 그래프 대신 오늘 운동 요약
-    h += '<div class="card"><h2>' + ic('clipboard-list') + ' 오늘 한 운동</h2>' + todayDetailHtml(d, mine, stat.from) + '</div>';
+    TODAY_ROWS = todayDetailRows(d, mine, stat.from); TODAY_PAGE = 0;
+    h += '<div class="card"><h2>' + ic('clipboard-list') + ' 오늘 한 운동'
+      + (TODAY_ROWS.length ? ' <span class="muted" style="font-size:13px;font-weight:600">' + TODAY_ROWS.length + '개</span>' : '')
+      + '</h2><div id="todayBody"></div></div>';
   } else {
     wInfo = weightSection(d);
     rInfo = runSection(d);
@@ -1317,6 +1320,8 @@ function drawTrend(){
 
   $('trend').innerHTML = h;
   icons();
+  hScrollInit();
+  if(isToday) renderTodayPage();
 
   if(!window.Chart){ return; }
   TREND_CHARTS.forEach(function(c){ try{c.destroy();}catch(e){} }); TREND_CHARTS = [];
@@ -1371,12 +1376,36 @@ function weightSection(d){
     '<div class="wchips" style="margin-bottom:8px">' + parts.map(function(p){
       return '<button class="wchip' + (p===TREND_WPART?' on':'') + '" onclick="trendPickPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';
     }).join('') + '</div>'
-    + '<div class="hchips">' + TREND_KEYS.map(function(k, i){
-      return '<button class="wchip' + (k===TREND_EQUIP?' on':'') + '" onclick="trendPickEquip(' + i + ')">' + esc(k) + '</button>';
-    }).join('') + '</div>'
+    + '<div class="hscroll" id="eqScrollWrap">'
+    +   '<button class="hsbtn left" id="eqScrollL" onclick="hScroll(-1)" aria-label="왼쪽으로">‹</button>'
+    +   '<div class="hchips" id="eqScroll" onscroll="hScrollArrows()">' + TREND_KEYS.map(function(k, i){
+          return '<button class="wchip' + (k===TREND_EQUIP?' on':'') + '" onclick="trendPickEquip(' + i + ')">' + esc(k) + '</button>';
+        }).join('') + '</div>'
+    +   '<button class="hsbtn right" id="eqScrollR" onclick="hScroll(1)" aria-label="오른쪽으로">›</button>'
+    + '</div>'
+    + (TREND_KEYS.length > 1 ? '<div class="hshint" id="eqScrollHint">기구 ' + TREND_KEYS.length + '개 · 옆으로 넘겨서 골라요</div>' : '')
     + '<div class="tsum">' + sum + '</div>'
     + (dates.length >= 2 ? '<div class="chartwrap"><canvas id="cWeight"></canvas></div>' : '');
   return { html:html, dates:dates, byDate:byDate };
+}
+/* 기구 칩 가로 스크롤: 화살표로 넘기기 + 넘칠 때만 화살표 표시 */
+function hScroll(dir){
+  var el = $('eqScroll'); if(!el) return;
+  el.scrollBy({ left: dir * Math.max(120, el.clientWidth * 0.7), behavior:'smooth' });
+}
+function hScrollArrows(){
+  var el = $('eqScroll'), l = $('eqScrollL'), r = $('eqScrollR'), hint = $('eqScrollHint');
+  if(!el || !l || !r) return;
+  var over = el.scrollWidth > el.clientWidth + 2;
+  l.classList.toggle('show', over && el.scrollLeft > 4);
+  r.classList.toggle('show', over && el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  if(hint) hint.style.display = over ? '' : 'none';
+}
+function hScrollInit(){
+  var el = $('eqScroll'); if(!el) return;
+  var on = el.querySelector('.wchip.on');   // 고른 기구가 보이게
+  if(on){ var x = on.offsetLeft - (el.clientWidth - on.offsetWidth) / 2; el.scrollLeft = Math.max(0, x); }
+  hScrollArrows();
 }
 function trendPickPart(p){ TREND_WPART = p; TREND_EQUIP = ''; drawTrend(); }
 function trendPickEquip(i){ TREND_EQUIP = TREND_KEYS[i] || ''; drawTrend(); }
@@ -1416,10 +1445,32 @@ function partBalanceHtml(weights){
   + (none.length ? '<p class="muted" style="margin:10px 0 0">이 기간에 안 한 부위: <b style="color:var(--text)">' + esc(none.join(', ')) + '</b></p>' : '');
 }
 
-/* F. 오늘 한 운동 요약 (지난번 같은 기구와 비교) */
-function todayDetailHtml(d, mine, today){
-  var out = '';
-  (d.running||[]).forEach(function(r){ out += '<div class="tdrow"><div class="tdname">🏃 런닝</div><div class="tdval">' + esc(runText(r)) + '</div></div>'; });
+/* F. 오늘 한 운동 — 5개씩 페이지로 나눠 보기 */
+var TODAY_ROWS = [], TODAY_PAGE = 0, TODAY_PER = 5;
+function renderTodayPage(){
+  var box = $('todayBody'); if(!box) return;
+  if(!TODAY_ROWS.length){ box.innerHTML = '<p class="muted">오늘은 아직 기록이 없어요. 운동을 마치고 기록해 보세요 💪</p>'; return; }
+  var pages = Math.ceil(TODAY_ROWS.length / TODAY_PER);
+  if(TODAY_PAGE >= pages) TODAY_PAGE = pages - 1;
+  var start = TODAY_PAGE * TODAY_PER;
+  var html = TODAY_ROWS.slice(start, start + TODAY_PER).join('');
+  if(pages > 1){
+    html += '<div class="pager">'
+      + '<button class="pgbtn" ' + (TODAY_PAGE===0?'disabled':'') + ' onclick="todayGo(' + (TODAY_PAGE-1) + ')" aria-label="이전">‹</button>';
+    for(var i=0;i<pages;i++){
+      html += '<button class="pgbtn' + (i===TODAY_PAGE?' on':'') + '" onclick="todayGo(' + i + ')">' + (i+1) + '</button>';
+    }
+    html += '<button class="pgbtn" ' + (TODAY_PAGE===pages-1?'disabled':'') + ' onclick="todayGo(' + (TODAY_PAGE+1) + ')" aria-label="다음">›</button>'
+      + '</div>';
+  }
+  box.innerHTML = html;
+}
+function todayGo(p){ TODAY_PAGE = p; renderTodayPage(); }
+
+/* 오늘 한 운동 행 목록 (지난번 같은 기구와 비교) */
+function todayDetailRows(d, mine, today){
+  var rows = [];
+  (d.running||[]).forEach(function(r){ rows.push('<div class="tdrow"><div class="tdname">🏃 런닝</div><div class="tdval">' + esc(runText(r)) + '</div></div>'); });
   var groups = {}, order = [];
   (d.weights||[]).forEach(function(w){
     var k = w.equip + (w.move ? ' · ' + w.move : '');
@@ -1438,10 +1489,10 @@ function todayDetailHtml(d, mine, today){
     });
     var g = groups[k];
     var tag = !prevDate ? '<span class="dt new">처음</span>' : deltaTag(g.top, prevTop, 'kg', true);
-    out += '<div class="tdrow"><div class="tdname">🏋 ' + esc(k) + '</div>'
-      + '<div class="tdval">' + g.sets + '세트' + (g.top ? ' · 최고 ' + g.top + 'kg' : '') + ' ' + tag + '</div></div>';
+    rows.push('<div class="tdrow"><div class="tdname">🏋 ' + esc(k) + '</div>'
+      + '<div class="tdval">' + g.sets + '세트' + (g.top ? ' · 최고 ' + g.top + 'kg' : '') + ' ' + tag + '</div></div>');
   });
-  return out || '<p class="muted">오늘은 아직 기록이 없어요. 운동을 마치고 기록해 보세요 💪</p>';
+  return rows;
 }
 
 /* E. 주간 운동 횟수 집계 (최근 8주, 사람별) */

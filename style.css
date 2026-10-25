@@ -437,3 +437,16 @@ select{-webkit-appearance:none;appearance:none;
 .tdrow:last-child{border-bottom:0}
 .tdname{font-size:14px;font-weight:700;color:var(--text)}
 .tdval{font-size:13px;color:var(--sub);margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* 기구 칩 가로 스크롤 + 좌우 화살표 */
+.hscroll{position:relative}
+.hsbtn{position:absolute;top:0;bottom:4px;width:34px;border:0;z-index:2;display:none;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:var(--main);cursor:pointer;padding:0}
+.hsbtn.show{display:flex}
+.hsbtn.left{left:0;background:linear-gradient(90deg,var(--card) 55%,rgba(26,30,39,0))}
+.hsbtn.right{right:0;background:linear-gradient(270deg,var(--card) 55%,rgba(26,30,39,0))}
+.hshint{font-size:11px;color:var(--sub);margin-top:4px}
+/* 오늘 한 운동 페이지 번호 */
+.pager{display:flex;justify-content:center;align-items:center;gap:6px;margin-top:12px}
+.pgbtn{min-width:34px;height:34px;padding:0 8px;border:1px solid var(--line);border-radius:10px;background:var(--card2);color:var(--sub);font-size:14px;font-weight:700;cursor:pointer}
+.pgbtn.on{background:linear-gradient(180deg,var(--main),var(--main-d));color:var(--ink);border-color:var(--main)}
+.pgbtn:disabled{opacity:.35;cursor:default}
