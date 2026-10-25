@@ -525,31 +525,39 @@ function val(id){ var el=$(id); return el?el.value:''; }
 /* ---- 웨이트: 기구 → 동작 팝업 ---- */
 function openWeight(){
   if(!GEAR.length){ toast('먼저 기구 목록에서 기구를 등록하세요.'); return; }
+  // 오늘의 운동 부위를 기본으로 (없으면 첫 부위)
+  if(PARTS.indexOf(PICK_PART) < 0) PICK_PART = (LOG && PARTS.indexOf(LOG.workout) >= 0) ? LOG.workout : (PARTS[0]||'');
   PICK_STEP='equip'; PICK_EQUIP=null; renderPicker();
 }
+var PICK_PART = '';
+function pickPart(p){ PICK_PART = p; renderPicker(); }
 function renderPicker(){
   var sh = $('pickerModal');
   if(!sh){ sh=document.createElement('div'); sh.id='pickerModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
   var body, title;
   if(PICK_STEP==='equip'){
     title = '기구 선택';
-    body = '<div class="grid-cards">' + GEAR.map(function(e,i){
-      return '<button class="pickcard" onclick="pickEquipStep(' + i + ')">'
-        + photoThumb(e.thumb, '🏋')
-        + '<div class="pcname">' + esc(e.name) + '</div>'
-        + '<div class="pcsub">' + esc(e.part) + '</div>'
-        + '</button>';
+    var chips = '<div class="wchips" style="margin-bottom:12px">' + PARTS.map(function(p){
+      return '<button class="wchip' + (p===PICK_PART?' on':'') + '" onclick="pickPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';
     }).join('') + '</div>';
+    var rows = [];
+    GEAR.forEach(function(e,i){ if(e.part===PICK_PART) rows.push(
+      '<button class="pickrow" onclick="pickEquipStep(' + i + ')">'
+        + (e.thumb ? '<img class="prthumb" src="' + esc(e.thumb) + '">' : '<span class="prthumb prnoimg">🏋</span>')
+        + '<span class="prname">' + esc(e.name) + '</span>'
+        + '<span class="prsub">동작 ' + (e.moves||[]).length + '</span>'
+      + '</button>'); });
+    body = chips + (rows.length ? rows.join('') : '<p class="muted">' + esc(PICK_PART) + ' 기구가 없어요. 기구 목록에서 등록해 주세요.</p>');
   } else {
     title = esc(PICK_EQUIP.name) + ' · 동작 선택';
     var moves = PICK_EQUIP.moves || [];
-    body = moves.length ? '<div class="grid-cards">' + moves.map(function(m,i){
-      return '<button class="pickcard" onclick="pickMoveStep(' + i + ')">'
-        + photoThumb(m.thumb, '💪')
-        + '<div class="pcname">' + esc(m.name) + '</div>'
-        + (m.desc ? '<div class="pcsub">' + esc(m.desc) + '</div>' : '')
+    body = moves.length ? moves.map(function(m,i){
+      return '<button class="pickrow" onclick="pickMoveStep(' + i + ')">'
+        + (m.thumb ? '<img class="prthumb" src="' + esc(m.thumb) + '">' : '<span class="prthumb prnoimg">💪</span>')
+        + '<span class="prname">' + esc(m.name) + '</span>'
+        + (m.link ? '<span class="prsub">▶ 영상</span>' : '')
         + '</button>';
-    }).join('') + '</div>'
+    }).join('')
       : '<p class="muted">등록된 동작이 없어요. 기구 목록에서 동작을 추가하거나, 아래 버튼으로 동작 없이 기록해요.</p>'
         + '<button class="button accent" style="width:100%;margin-top:10px" onclick="pickMoveNone()">동작 없이 기록</button>';
   }
@@ -1085,11 +1093,114 @@ function openSessionDetail(i){
           : '<img src="' + esc(s.finishThumb) + '" class="detphoto">') : '')
     +     (run || '')
     +     (wt || '')
+    +     '<button class="button accent" style="width:100%;margin-top:14px" onclick="openLogShare(' + i + ')">' + ic('share-2') + ' 이 날 기록 공유하기</button>'
     +   '</div>'
     + '</div>';
   sh.classList.add('on'); icons();
 }
 function closeDetail(){ var sh=$('detailModal'); if(sh) sh.classList.remove('on'); }
+
+/* ====================================================================
+ * 운동일지 공유 카드 — 그날 기록을 9:16 이미지 한 장으로
+ * ==================================================================== */
+var LOGSHARE_I = -1;
+function openLogShare(i){
+  LOGSHARE_I = i;
+  var sh = $('logShareModal');
+  if(!sh){ sh=document.createElement('div'); sh.id='logShareModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML =
+    '<div class="modalbg" onclick="closeLogShare()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>' + ic('share-2') + ' 운동일지 공유</b><button class="xbtn" onclick="closeLogShare()">✕</button></div>'
+    +   '<div class="modalbody">'
+    +     '<div class="sharepreview"><canvas id="logShareCanvas"></canvas></div>'
+    +     '<button class="button accent" style="width:100%" onclick="downloadLogShare()">이미지로 저장</button>'
+    +     '<p class="muted" style="text-align:center;margin-top:8px">"나 이날 이렇게 운동했다!" 자랑해 보세요 💪</p>'
+    +   '</div>'
+    + '</div>';
+  sh.classList.add('on'); icons();
+  renderLogShare();
+}
+function closeLogShare(){ var sh=$('logShareModal'); if(sh) sh.classList.remove('on'); }
+
+function renderLogShare(){
+  var s = DAY_LIST[LOGSHARE_I]; var cv = $('logShareCanvas'); if(!s || !cv) return;
+  var W=1080, H=1920; cv.width=W; cv.height=H;
+  var ctx = cv.getContext('2d');
+  var pad = 80;
+
+  function paint(img){
+    var g=ctx.createLinearGradient(0,0,W,H); g.addColorStop(0,'#13161d'); g.addColorStop(1,'#0c0e12');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    ctx.textAlign='left';
+    ctx.fillStyle='#c6f432'; ctx.font='800 40px "Gothic A1",sans-serif';
+    ctx.fillText('● 운동 레포트', pad, 120);
+    ctx.fillStyle='#eef1f5'; ctx.font='900 78px "Gothic A1",sans-serif';
+    ctx.fillText(mdSlash(s.date) + (s.workout ? '  ' + s.workout + '날' : ''), pad, 220);
+    ctx.fillStyle='#9aa3b2'; ctx.font='600 36px "Gothic A1",sans-serif';
+    ctx.fillText(s.who + '의 운동 기록', pad, 280);
+
+    var y = 330;
+    // 오운완 사진 (잘리지 않게 통째로)
+    if(img){
+      var boxW=W-pad*2, boxH=640;
+      ctx.save(); roundRect(ctx,pad,y,boxW,boxH,28); ctx.clip();
+      ctx.fillStyle='#1a1e27'; ctx.fillRect(pad,y,boxW,boxH);
+      var sc=Math.min(boxW/img.width, boxH/img.height), dw=img.width*sc, dh=img.height*sc;
+      ctx.drawImage(img, pad+(boxW-dw)/2, y+(boxH-dh)/2, dw, dh);
+      ctx.restore();
+      y += boxH + 60;
+    }
+
+    // 런닝
+    (s.running||[]).forEach(function(r){
+      ctx.fillStyle='#49e39b'; ctx.font='800 44px "Gothic A1",sans-serif';
+      ctx.fillText('🏃 런닝', pad, y);
+      ctx.fillStyle='#eef1f5'; ctx.font='700 40px "Gothic A1",sans-serif';
+      ctx.fillText(runText(r), pad + 190, y);
+      y += 76;
+    });
+
+    // 웨이트: 기구 · 동작 · 세트수 · 최고 무게
+    var list = s.weights||[];
+    var maxRows = Math.floor((H - 160 - y) / 68);
+    list.slice(0, Math.max(0, maxRows)).forEach(function(w){
+      var top=0; (w.sets||[]).forEach(function(x){ var v=Number(x.weight)||0; if(v>top) top=v; });
+      var label = w.equip + (w.move ? ' · ' + w.move : '');
+      if(label.length > 16) label = label.slice(0,16) + '…';
+      ctx.fillStyle='#eef1f5'; ctx.font='700 40px "Gothic A1",sans-serif';
+      ctx.fillText('🏋 ' + label, pad, y);
+      ctx.fillStyle='#c6f432'; ctx.textAlign='right';
+      ctx.fillText((w.sets||[]).length + '세트' + (top ? ' · ' + top + 'kg' : ''), W-pad, y);
+      ctx.textAlign='left';
+      y += 68;
+    });
+    if(list.length > maxRows && maxRows >= 0){
+      ctx.fillStyle='#9aa3b2'; ctx.font='600 34px "Gothic A1",sans-serif';
+      ctx.fillText('외 ' + (list.length - maxRows) + '개 더', pad, y);
+    }
+
+    ctx.fillStyle='#5b6472'; ctx.font='500 30px "Gothic A1",sans-serif';
+    ctx.fillText(s.date, pad, H-90);
+  }
+
+  if(s.finishThumb){
+    var im=new Image();
+    if(String(s.finishThumb).indexOf('data:')!==0) im.crossOrigin='anonymous';
+    im.onload=function(){ paint(im); }; im.onerror=function(){ paint(null); };
+    im.src=s.finishThumb;
+  } else { paint(null); }
+}
+function downloadLogShare(){
+  var cv=$('logShareCanvas'); var s=DAY_LIST[LOGSHARE_I]; if(!cv) return;
+  try{
+    var a=document.createElement('a');
+    a.href=cv.toDataURL('image/jpeg',0.92);
+    a.download='운동일지_' + (s?s.date:'') + '.jpg';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('저장 완료! 공유해 보세요 📸');
+  }catch(e){ toast('사진 보안 때문에 저장이 막혔어요. 화면 캡처로 저장해 주세요.'); }
+}
 
 /* ====================================================================
  * 발전 추이 — 그래프 + 공유 카드
@@ -1115,9 +1226,19 @@ function ymd(s){ return String(s||'').slice(0,10); }
 function trendInRange(){
   var b = rangeBounds(TREND_RANGE, TREND_FROM, TREND_TO);
   var from=b.from, to=b.to;
+  var mine = myTrend();
   return {
-    running: (TREND.running||[]).filter(function(r){ var x=ymd(r.date); return x>=from && x<=to; }),
-    weights: (TREND.weights||[]).filter(function(w){ var x=ymd(w.date); return x>=from && x<=to; }),
+    running: mine.running.filter(function(r){ var x=ymd(r.date); return x>=from && x<=to; }),
+    weights: mine.weights.filter(function(w){ var x=ymd(w.date); return x>=from && x<=to; }),
+    people: TREND.people||[],
+  };
+}
+/* 로그인한 본인 기록만 (성과분석 요약·그래프·공유 카드용) */
+function myTrend(){
+  var me = ME ? ME.name : '';
+  return {
+    running: (TREND.running||[]).filter(function(r){ return r.who===me; }),
+    weights: (TREND.weights||[]).filter(function(w){ return w.who===me; }),
     people: TREND.people||[],
   };
 }
@@ -1141,7 +1262,7 @@ function trendSetRange(v){ TREND_RANGE=v; if(v==='custom'){ if(!TREND_TO) TREND_
 
 function drawTrend(){
   var d = trendInRange();
-  var stat = computeStat(TREND, TREND_RANGE, TREND_FROM, TREND_TO);
+  var stat = computeStat(myTrend(), TREND_RANGE, TREND_FROM, TREND_TO);
   var equipKeys = equipKeyList(d.weights);
   if(equipKeys.indexOf(TREND_EQUIP) < 0) TREND_EQUIP = equipKeys[0] || '';
 
@@ -1388,7 +1509,7 @@ function renderShareCard(){
   var cv = $('shareCanvas'); if(!cv) return;
   var W=1080, H=1920; cv.width=W; cv.height=H;
   var ctx = cv.getContext('2d');
-  var s = computeStat(TREND, SHARE_RANGE, SHARE_FROM, SHARE_TO);
+  var s = computeStat(myTrend(), SHARE_RANGE, SHARE_FROM, SHARE_TO);
   var title = SHARE_RANGE==='today' ? '오늘' : SHARE_RANGE==='week' ? '이번 주' : SHARE_RANGE==='month' ? '이번 달' : '운동 요약';
   var showSessions = (SHARE_RANGE==='week' || SHARE_RANGE==='month');   // 오늘·기간선택엔 운동 횟수 숨김
   var periodTxt = mdSlash(s.from) + ' ~ ' + mdSlash(s.to);
@@ -1424,8 +1545,7 @@ function renderShareCard(){
     var y=560;
     if(showSessions){ bigStat(ctx, pad, y, s.sessions, '회', '운동 횟수'); y+=260; }
     bigStat(ctx, pad, y, s.km, 'km', '런닝 거리'); y+=260;
-    var totKg = (s.upper.kg||0) + (s.lower.kg||0);
-    bigStat(ctx, pad, y, s.sets, '세트', '총 ' + addComma(totKg) + 'kg  (상체 ' + addComma(s.upper.kg) + ' · 하체 ' + addComma(s.lower.kg) + ')');
+    bigStat(ctx, pad, y, s.sets, '세트', '근력 운동');
 
     // 하단 기간 표시
     ctx.fillStyle='#9aa3b2'; ctx.font='600 36px "Gothic A1",sans-serif';
@@ -1561,9 +1681,14 @@ function renderVsCard(){
       if(String(d.thumb).indexOf('data:')!==0) im.crossOrigin='anonymous';
       im.onload=function(){
         ctx.save(); roundRect(ctx,x,y,cw,cellH,r); ctx.clip();
+        // 1) 배경: 같은 사진을 칸에 꽉 채우고 어둡게 (빈 공간 메우기용)
         var ir=im.width/im.height, cr=cw/cellH, sw,sh2,sx,sy;
         if(ir>cr){ sh2=im.height; sw=sh2*cr; sx=(im.width-sw)/2; sy=0; } else { sw=im.width; sh2=sw/cr; sx=0; sy=(im.height-sh2)/2; }
         ctx.drawImage(im, sx,sy,sw,sh2, x,y,cw,cellH);
+        ctx.fillStyle='rgba(10,12,16,.72)'; ctx.fillRect(x,y,cw,cellH);
+        // 2) 본 사진: 잘리지 않게 칸 안에 통째로 (확대 없음)
+        var sc=Math.min(cw/im.width, cellH/im.height), dw=im.width*sc, dh=im.height*sc;
+        ctx.drawImage(im, x+(cw-dw)/2, y+(cellH-dh)/2, dw, dh);
         var gg=ctx.createLinearGradient(0,y+cellH-200,0,y+cellH); gg.addColorStop(0,'rgba(0,0,0,0)'); gg.addColorStop(1,'rgba(0,0,0,.75)');
         ctx.fillStyle=gg; ctx.fillRect(x,y+cellH-200,cw,200);
         ctx.fillStyle='#fff'; ctx.font='800 52px "Gothic A1",sans-serif'; ctx.textAlign='left';
