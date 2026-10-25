@@ -1260,13 +1260,25 @@ function trendRangeBtns(){
 }
 function trendSetRange(v){ TREND_RANGE=v; if(v==='custom'){ if(!TREND_TO) TREND_TO=todayStr(); if(!TREND_FROM) TREND_FROM=weekAgo(6); } drawTrend(); }
 
+/* 날짜 계산 (로컬 기준) */
+function addDaysYmd(s, n){ var d=new Date(String(s).slice(0,10)+'T00:00:00'); d.setDate(d.getDate()+n); return localYmdStr(d); }
+function daysBetween(a, b){ return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00'))/86400000); }
+var TREND_WPART = '';      // 무게 변화에서 고른 부위
+var TREND_KEYS = [];       // 지금 보이는 기구 칩 목록 (index로 선택)
+var TREND_RUNMODE = 'km';  // 런닝: km | kcal
+
 function drawTrend(){
   var d = trendInRange();
-  var stat = computeStat(myTrend(), TREND_RANGE, TREND_FROM, TREND_TO);
-  var equipKeys = equipKeyList(d.weights);
-  if(equipKeys.indexOf(TREND_EQUIP) < 0) TREND_EQUIP = equipKeys[0] || '';
+  var mine = myTrend();
+  var stat = computeStat(mine, TREND_RANGE, TREND_FROM, TREND_TO);
+  // A. 이전 같은 길이의 기간과 비교
+  var len = Math.max(1, daysBetween(stat.from, stat.to) + 1);
+  var pTo = addDaysYmd(stat.from, -1), pFrom = addDaysYmd(pTo, -(len-1));
+  var prev = computeStat(mine, 'custom', pFrom, pTo);
+  var isToday = TREND_RANGE === 'today';
+  var cmpLbl = isToday ? '어제 대비' : TREND_RANGE==='week' ? '지난 7일 대비' : TREND_RANGE==='month' ? '지난 30일 대비' : '이전 ' + len + '일 대비';
 
-  $('trend').innerHTML =
+  var h =
     '<div class="card">'
     +   '<div class="row" style="justify-content:space-between;align-items:center">'
     +     '<h2 style="margin:0">성과 분석</h2>'
@@ -1274,44 +1286,178 @@ function drawTrend(){
     +   '</div>'
     +   trendRangeBtns()
     +   '<div class="statline">'
-    +     statBox('운동', stat.sessions + '회') + statBox('런닝', stat.km + 'km') + statBox('총 세트', stat.sets + '세트')
+    +     statBox('운동', stat.sessions + '회', deltaTag(stat.sessions, prev.sessions, '회'))
+    +     statBox('런닝', stat.km + 'km', deltaTag(stat.km, prev.km, 'km', true))
+    +     statBox('총 세트', stat.sets + '세트', deltaTag(stat.sets, prev.sets, '세트'))
     +   '</div>'
+    +   '<div class="cmplbl">' + esc(cmpLbl) + '</div>'
     +   '<div class="splitstat">'
-    +     '<div class="ss"><span class="sslbl">상체</span><b>' + stat.upper.sets + '세트</b><span class="sskg">(' + addComma(stat.upper.kg) + 'kg)</span></div>'
-    +     '<div class="ss"><span class="sslbl">하체</span><b>' + stat.lower.sets + '세트</b><span class="sskg">(' + addComma(stat.lower.kg) + 'kg)</span></div>'
+    +     '<div class="ss"><span class="sslbl">상체</span><b>' + stat.upper.sets + '세트</b></div>'
+    +     '<div class="ss"><span class="sslbl">하체</span><b>' + stat.lower.sets + '세트</b></div>'
     +   '</div>'
-    + '</div>'
-
-    + '<div class="card">'
-    +   '<h2>' + ic('dumbbell') + ' 무게 변화</h2>'
-    +   (equipKeys.length
-        ? '<select class="bigsel" onchange="TREND_EQUIP=this.value;drawTrend()">'
-            + equipKeys.map(function(k){ return '<option value="' + esc(k) + '"' + (k===TREND_EQUIP?' selected':'') + '>' + esc(k) + '</option>'; }).join('')
-          + '</select><div class="chartwrap tall"><canvas id="cWeight"></canvas></div>'
-        : '<p class="muted">이 기간엔 웨이트 기록이 없어요.</p>')
-    + '</div>'
-
-    + '<div class="card">'
-    +   '<h2>' + ic('footprints') + ' 런닝 변화</h2>'
-    +   (d.running.length ? '<div class="chartwrap tall"><canvas id="cRun"></canvas></div>'
-                         : '<p class="muted">이 기간엔 런닝 기록이 없어요.</p>')
-    + '</div>'
-
-    + '<div class="card">'
-    +   '<h2>' + ic('calendar-days') + ' 주간 운동 횟수</h2>'
-    +   '<div class="chartwrap"><canvas id="cWeek"></canvas></div>'
     + '</div>';
+
+  var wInfo = null, rInfo = null;
+  if(isToday){
+    // F. 오늘은 그래프 대신 오늘 운동 요약
+    h += '<div class="card"><h2>' + ic('clipboard-list') + ' 오늘 한 운동</h2>' + todayDetailHtml(d, mine, stat.from) + '</div>';
+  } else {
+    wInfo = weightSection(d);
+    rInfo = runSection(d);
+    h += '<div class="card"><h2>' + ic('dumbbell') + ' 무게 변화</h2>' + wInfo.html + '</div>'
+      +  '<div class="card"><h2>' + ic('footprints') + ' 런닝 변화</h2>' + rInfo.html + '</div>';
+  }
+  // D. 부위 균형
+  h += '<div class="card"><h2>' + ic('activity') + ' 부위별 세트</h2>' + partBalanceHtml(d.weights) + '</div>';
+  // E. 주간 운동 횟수
+  var wk = weekCounts();
+  h += '<div class="card"><h2>' + ic('calendar-days') + ' 주간 운동 횟수</h2>'
+    +  '<div class="tsum">이번 주 ' + hl(wk.thisWeek + '회') + ' · 지난주 ' + hl(wk.lastWeek + '회') + '</div>'
+    +  '<div class="chartwrap"><canvas id="cWeek"></canvas></div></div>';
+
+  $('trend').innerHTML = h;
   icons();
 
   if(!window.Chart){ return; }
   TREND_CHARTS.forEach(function(c){ try{c.destroy();}catch(e){} }); TREND_CHARTS = [];
-  if(equipKeys.length) drawWeightChart(d);
-  if(d.running.length) drawRunChart(d);
-  drawWeekChart();
+  if(wInfo && wInfo.dates.length >= 2) drawWeightChart(wInfo);
+  if(rInfo && rInfo.dates.length) drawRunChart(rInfo);
+  drawWeekChart(wk);
 }
 
-function statBox(label, val){
-  return '<div class="statbox"><div class="statval">' + esc(val) + '</div><div class="statlbl">' + esc(label) + '</div></div>';
+/* 증감 표시 ▲▼ */
+function deltaTag(cur, prev, unit, dec){
+  var f = dec ? 10 : 1;
+  var diff = Math.round((Number(cur||0) - Number(prev||0)) * f) / f;
+  if(!diff) return '<span class="dt same">변화 없음</span>';
+  return '<span class="dt ' + (diff > 0 ? 'up' : 'down') + '">' + (diff > 0 ? '▲' : '▼') + Math.abs(diff) + unit + '</span>';
+}
+function statBox(label, val, extra){
+  return '<div class="statbox"><div class="statval">' + esc(val) + '</div><div class="statlbl">' + esc(label) + '</div>' + (extra||'') + '</div>';
+}
+
+/* B. 무게 변화: 부위 칩 → 기구 칩 → 한 줄 결론 + 그래프 */
+function weightSection(d){
+  var keyPart = {};
+  (d.weights||[]).forEach(function(w){ if(w.weight!=='' && w.weight!=null){ keyPart[w.equip + (w.move ? ' · ' + w.move : '')] = w.part; } });
+  var allKeys = Object.keys(keyPart);
+  if(!allKeys.length) return { html:'<p class="muted">이 기간엔 근력 운동 기록이 없어요.</p>', dates:[] };
+  var parts = PARTS.filter(function(p){ return allKeys.some(function(k){ return keyPart[k]===p; }); });
+  if(parts.indexOf(TREND_WPART) < 0) TREND_WPART = parts[0];
+  TREND_KEYS = allKeys.filter(function(k){ return keyPart[k]===TREND_WPART; });
+  if(TREND_KEYS.indexOf(TREND_EQUIP) < 0) TREND_EQUIP = TREND_KEYS[0];
+
+  // 날짜별 최고 무게
+  var byDate = {};
+  d.weights.forEach(function(w){
+    var k = w.equip + (w.move ? ' · ' + w.move : '');
+    if(k !== TREND_EQUIP || w.weight==='' || w.weight==null) return;
+    var dt = ymd(w.date), v = Number(w.weight)||0;
+    if(byDate[dt]==null || v > byDate[dt]) byDate[dt] = v;
+  });
+  var dates = Object.keys(byDate).sort();
+  var first = byDate[dates[0]], last = byDate[dates[dates.length-1]];
+  var top = Math.max.apply(null, dates.map(function(x){ return byDate[x]; }));
+  var sum;
+  if(dates.length < 2){
+    sum = '지금 ' + hl(last + 'kg') + ' · 기록이 2번 이상 쌓이면 그래프가 그려져요';
+  } else {
+    var diff = Math.round((last - first) * 10) / 10;
+    sum = '처음 ' + hl(first + 'kg') + ' → 지금 ' + hl(last + 'kg') + ' '
+      + (diff > 0 ? '(' + hl('+' + diff + 'kg') + ') 🔥' : diff < 0 ? '(' + diff + 'kg)' : '(유지)')
+      + (top > last ? '<br><span class="muted">기간 최고 ' + top + 'kg</span>' : '');
+  }
+  var html =
+    '<div class="wchips" style="margin-bottom:8px">' + parts.map(function(p){
+      return '<button class="wchip' + (p===TREND_WPART?' on':'') + '" onclick="trendPickPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';
+    }).join('') + '</div>'
+    + '<div class="hchips">' + TREND_KEYS.map(function(k, i){
+      return '<button class="wchip' + (k===TREND_EQUIP?' on':'') + '" onclick="trendPickEquip(' + i + ')">' + esc(k) + '</button>';
+    }).join('') + '</div>'
+    + '<div class="tsum">' + sum + '</div>'
+    + (dates.length >= 2 ? '<div class="chartwrap"><canvas id="cWeight"></canvas></div>' : '');
+  return { html:html, dates:dates, byDate:byDate };
+}
+function trendPickPart(p){ TREND_WPART = p; TREND_EQUIP = ''; drawTrend(); }
+function trendPickEquip(i){ TREND_EQUIP = TREND_KEYS[i] || ''; drawTrend(); }
+
+/* C. 런닝 변화: 거리/칼로리 하나씩, 막대그래프 */
+function runSection(d){
+  var byDate = {};
+  (d.running||[]).forEach(function(r){ var dt=ymd(r.date); byDate[dt]=byDate[dt]||{km:0,kcal:0}; byDate[dt].km+=Number(r.km)||0; byDate[dt].kcal+=Number(r.kcal)||0; });
+  var dates = Object.keys(byDate).sort();
+  if(!dates.length) return { html:'<p class="muted">이 기간엔 런닝 기록이 없어요.</p>', dates:[] };
+  var isKm = TREND_RUNMODE === 'km';
+  var total = 0; dates.forEach(function(x){ total += isKm ? byDate[x].km : byDate[x].kcal; });
+  var avg = total / dates.length;
+  var fix = function(n){ return isKm ? Math.round(n*10)/10 + 'km' : Math.round(n) + 'kcal'; };
+  var html =
+    '<div class="wchips" style="margin-bottom:8px">'
+    +   '<button class="wchip' + (isKm?' on':'') + '" onclick="TREND_RUNMODE=\'km\';drawTrend()">거리</button>'
+    +   '<button class="wchip' + (!isKm?' on':'') + '" onclick="TREND_RUNMODE=\'kcal\';drawTrend()">칼로리</button>'
+    + '</div>'
+    + '<div class="tsum">총 ' + hl(fix(total)) + ' · 1회 평균 ' + hl(fix(avg)) + ' <span class="muted">(' + dates.length + '회)</span></div>'
+    + '<div class="chartwrap"><canvas id="cRun"></canvas></div>';
+  return { html:html, dates:dates, byDate:byDate, isKm:isKm };
+}
+
+/* D. 부위별 세트 (가로 막대) */
+function partBalanceHtml(weights){
+  var cnt = {}; PARTS.forEach(function(p){ cnt[p] = 0; });
+  (weights||[]).forEach(function(w){ if(cnt[w.part] != null) cnt[w.part]++; });
+  var max = Math.max.apply(null, PARTS.map(function(p){ return cnt[p]; }));
+  if(!max) return '<p class="muted">이 기간엔 근력 운동 기록이 없어요.</p>';
+  var none = PARTS.filter(function(p){ return !cnt[p]; });
+  return PARTS.map(function(p){
+    return '<div class="pbrow"><span class="pbname">' + esc(p) + '</span>'
+      + '<div class="pbbar"><span style="width:' + Math.round(cnt[p]/max*100) + '%"></span></div>'
+      + '<span class="pbval">' + cnt[p] + '세트</span></div>';
+  }).join('')
+  + (none.length ? '<p class="muted" style="margin:10px 0 0">이 기간에 안 한 부위: <b style="color:var(--text)">' + esc(none.join(', ')) + '</b></p>' : '');
+}
+
+/* F. 오늘 한 운동 요약 (지난번 같은 기구와 비교) */
+function todayDetailHtml(d, mine, today){
+  var out = '';
+  (d.running||[]).forEach(function(r){ out += '<div class="tdrow"><div class="tdname">🏃 런닝</div><div class="tdval">' + esc(runText(r)) + '</div></div>'; });
+  var groups = {}, order = [];
+  (d.weights||[]).forEach(function(w){
+    var k = w.equip + (w.move ? ' · ' + w.move : '');
+    if(!groups[k]){ groups[k] = { sets:0, top:0 }; order.push(k); }
+    groups[k].sets++;
+    var v = Number(w.weight)||0; if(v > groups[k].top) groups[k].top = v;
+  });
+  order.forEach(function(k){
+    // 오늘 이전 가장 최근 같은 기구의 최고 무게
+    var prevDate = '', prevTop = 0;
+    (mine.weights||[]).forEach(function(w){
+      var kk = w.equip + (w.move ? ' · ' + w.move : ''), dt = ymd(w.date);
+      if(kk !== k || dt >= today) return;
+      var v = Number(w.weight)||0;
+      if(dt > prevDate){ prevDate = dt; prevTop = v; } else if(dt === prevDate && v > prevTop){ prevTop = v; }
+    });
+    var g = groups[k];
+    var tag = !prevDate ? '<span class="dt new">처음</span>' : deltaTag(g.top, prevTop, 'kg', true);
+    out += '<div class="tdrow"><div class="tdname">🏋 ' + esc(k) + '</div>'
+      + '<div class="tdval">' + g.sets + '세트' + (g.top ? ' · 최고 ' + g.top + 'kg' : '') + ' ' + tag + '</div></div>';
+  });
+  return out || '<p class="muted">오늘은 아직 기록이 없어요. 운동을 마치고 기록해 보세요 💪</p>';
+}
+
+/* E. 주간 운동 횟수 집계 (최근 8주, 사람별) */
+function weekCounts(){
+  var people = TREND.people || [];
+  var weeks = []; for(var i=7;i>=0;i--){ weeks.push(weekStart(i)); }
+  var days = {};
+  (TREND.running||[]).concat(TREND.weights||[]).forEach(function(x){ days[ymd(x.date) + '|' + x.who] = 1; });
+  var counts = {}; people.forEach(function(p){ counts[p] = weeks.map(function(){ return 0; }); });
+  Object.keys(days).forEach(function(key){
+    var parts = key.split('|'), wi = weeks.indexOf(weekStartOf(parts[0]));
+    if(wi >= 0 && counts[parts[1]]) counts[parts[1]][wi]++;
+  });
+  var me = ME ? counts[ME.name] : null;
+  return { people:people, weeks:weeks, counts:counts,
+    thisWeek: me ? me[7] : 0, lastWeek: me ? me[6] : 0 };
 }
 function fmt(n){ n=Number(n)||0; return n>=1000 ? (Math.round(n/100)/10)+'k' : String(Math.round(n)); }
 function addComma(n){ return String(Math.round(Number(n)||0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
@@ -1385,57 +1531,51 @@ function chartBase(){
              y:{ ticks:{ color:'#8a93a4', font:CHART_FONT }, grid:{ color:'rgba(255,255,255,.05)' }, border:{ display:false } } } };
 }
 
-function drawWeightChart(d){
-  // 고른 기구/동작의 날짜별 최고무게
-  var byDate = {};
-  d.weights.forEach(function(w){
-    var k = w.equip + (w.move?' · '+w.move:'');
-    if(k!==TREND_EQUIP || w.weight===''||w.weight==null) return;
-    var dt = ymd(w.date), v = Number(w.weight)||0;
-    if(!byDate[dt] || v>byDate[dt]) byDate[dt]=v;
-  });
-  var dates = Object.keys(byDate).sort();
+function drawWeightChart(info){
+  // info = weightSection() 결과 { dates, byDate }
+  var dates = info.dates, byDate = info.byDate;
   var ctx = $('cWeight'); if(!ctx) return;
+  var opt = chartBase();
+  opt.plugins.legend = { display:false };
+  opt.plugins.tooltip.callbacks = { label:function(c){ return ' ' + c.parsed.y + 'kg'; } };
+  opt.scales.y.ticks.callback = function(v){ return v + 'kg'; };
   TREND_CHARTS.push(new Chart(ctx, { type:'line',
-    data:{ labels:dates.map(mmdd), datasets:[{ label:TREND_EQUIP+' 최고무게(kg)', data:dates.map(function(d){return byDate[d];}),
-      borderColor:'#c6f432', backgroundColor:gradFill(ctx,'rgba(198,244,50,.35)'), borderWidth:3, tension:.35, fill:true,
+    data:{ labels:dates.map(mdSlash), datasets:[{ data:dates.map(function(x){ return byDate[x]; }),
+      borderColor:'#c6f432', backgroundColor:gradFill(ctx,'rgba(198,244,50,.3)'), borderWidth:3, tension:.3, fill:true,
       pointRadius:5, pointHoverRadius:7, pointBackgroundColor:'#c6f432', pointBorderColor:'#13161d', pointBorderWidth:2 }] },
-    options:chartBase() }));
+    options:opt }));
 }
-function drawRunChart(d){
-  var byDate = {};
-  d.running.forEach(function(r){ var dt=ymd(r.date); byDate[dt]=byDate[dt]||{km:0,kcal:0}; byDate[dt].km+=Number(r.km)||0; byDate[dt].kcal+=Number(r.kcal)||0; });
-  var dates = Object.keys(byDate).sort();
+function drawRunChart(info){
+  var dates = info.dates, byDate = info.byDate, isKm = info.isKm;
   var ctx = $('cRun'); if(!ctx) return;
-  TREND_CHARTS.push(new Chart(ctx, { type:'line',
-    data:{ labels:dates.map(mmdd), datasets:[
-      { label:'거리(km)', data:dates.map(function(d){return Math.round(byDate[d].km*10)/10;}), borderColor:'#49e39b', backgroundColor:gradFill(ctx,'rgba(73,227,155,.3)'), borderWidth:3, tension:.35, fill:true, pointRadius:4, pointHoverRadius:6, pointBackgroundColor:'#49e39b', yAxisID:'y' },
-      { label:'칼로리(kcal)', data:dates.map(function(d){return Math.round(byDate[d].kcal);}), borderColor:'#ff5a5f', borderWidth:3, tension:.35, pointRadius:4, pointBackgroundColor:'#ff5a5f', yAxisID:'y1' }
-    ]},
-    options:Object.assign(chartBase(), { scales:{
-      x:{ ticks:{color:'#8a93a4',font:CHART_FONT,maxRotation:0,autoSkip:true,maxTicksLimit:7}, grid:{display:false} },
-      y:{ position:'left', ticks:{color:'#49e39b',font:CHART_FONT}, grid:{color:'rgba(255,255,255,.05)'}, border:{display:false} },
-      y1:{ position:'right', ticks:{color:'#ff5a5f',font:CHART_FONT}, grid:{drawOnChartArea:false}, border:{display:false} } } }) }));
+  var unit = isKm ? 'km' : 'kcal';
+  var opt = chartBase();
+  opt.plugins.legend = { display:false };
+  opt.plugins.tooltip.callbacks = { label:function(c){ return ' ' + c.parsed.y + unit; } };
+  opt.scales.y.beginAtZero = true;
+  opt.scales.y.ticks.callback = function(v){ return v + unit; };
+  TREND_CHARTS.push(new Chart(ctx, { type:'bar',
+    data:{ labels:dates.map(mdSlash), datasets:[{
+      data:dates.map(function(x){ return isKm ? Math.round(byDate[x].km*10)/10 : Math.round(byDate[x].kcal); }),
+      backgroundColor: isKm ? '#49e39b' : '#ff8a5f', borderRadius:8, maxBarThickness:36 }] },
+    options:opt }));
 }
-function drawWeekChart(){
-  // 최근 8주, 사람별 운동 횟수(세션=날짜+사람)
-  var people = TREND.people||[];
-  var weeks = []; for(var i=7;i>=0;i--){ weeks.push(weekStart(i)); }
-  var sess = {}; (TREND.running||[]).concat(TREND.weights||[]).forEach(function(x){ sess[x.date+'|'+x.who]=x; });
-  var counts = {}; people.forEach(function(p){ counts[p]=weeks.map(function(){return 0;}); });
-  Object.keys(sess).forEach(function(key){
-    var parts=key.split('|'), dt=parts[0], who=parts[1];
-    var wi = weeks.indexOf(weekStartOf(dt)); if(wi>=0 && counts[who]) counts[who][wi]++;
-  });
+function drawWeekChart(wk){
   var colors = ['#c6f432','#49e39b'];
   var ctx = $('cWeek'); if(!ctx) return;
+  var opt = chartBase();
+  opt.scales.y.beginAtZero = true;
+  opt.scales.y.ticks.stepSize = 1;
+  opt.scales.y.ticks.precision = 0;
   TREND_CHARTS.push(new Chart(ctx, { type:'bar',
-    data:{ labels:weeks.map(function(w){return w.slice(5);}), datasets:people.map(function(p,i){
-      return { label:p, data:counts[p], backgroundColor:colors[i%colors.length] }; }) },
-    options:chartBase() }));
+    data:{ labels:wk.weeks.map(function(w, i){ return i===7 ? '이번 주' : i===6 ? '지난주' : mdSlash(w); }),
+      datasets:wk.people.map(function(p, i){
+        return { label:p, data:wk.counts[p], backgroundColor:colors[i%colors.length], borderRadius:6, maxBarThickness:22 }; }) },
+    options:opt }));
 }
-function weekStart(nAgo){ var d=new Date(); d.setDate(d.getDate()-nAgo*7); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.toISOString().slice(0,10); }
-function weekStartOf(dateStr){ var d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.toISOString().slice(0,10); }
+/* 주 시작(월요일) — 로컬 날짜 기준 (UTC 밀림 버그 수정) */
+function weekStart(nAgo){ var d=new Date(); d.setDate(d.getDate()-nAgo*7); d.setDate(d.getDate()-((d.getDay()+6)%7)); return localYmdStr(d); }
+function weekStartOf(dateStr){ var d=new Date(String(dateStr).slice(0,10)+'T00:00:00'); d.setDate(d.getDate()-((d.getDay()+6)%7)); return localYmdStr(d); }
 
 /* ====================================================================
  * 공유 카드 (나이키 런닝 스타일 · 9:16 · 사진 위 통계)
