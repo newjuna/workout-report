@@ -479,3 +479,31 @@ select{-webkit-appearance:none;appearance:none;
 .routinerow .rtsets{flex-shrink:0;color:var(--main);font-weight:700;font-size:12px}
 .routinerow.done{opacity:.5}
 .routinerow.done .rtsets{color:var(--sub)}
+/* WF4.1 루틴 목록: 사진 + 기구명만 */
+.routinerow{justify-content:flex-start;padding:7px 10px;gap:10px}
+.routinerow .rtname{flex:1;font-weight:700;font-size:14px}
+.routinerow .rtname small{font-weight:500;font-size:11px;color:var(--sub);margin-left:4px}
+.rtthumb{width:38px;height:38px;flex-shrink:0;border-radius:9px;object-fit:cover;background:var(--card2);border:1px solid var(--line)}
+.rtthumb.noimg,.dhthumb.noimg{display:flex;align-items:center;justify-content:center;color:var(--sub)}
+.rtthumb.noimg svg{width:18px;height:18px}
+.rtdone{flex-shrink:0;color:var(--main);font-weight:900;font-size:14px}
+/* 세트 입력 헤더 썸네일 */
+.dhthumb{width:32px;height:32px;flex-shrink:0;border-radius:8px;object-fit:cover;background:var(--card);border:1px solid var(--line)}
+.dhthumb.noimg svg{width:16px;height:16px}
+/* 세트 입력칸 작게 */
+.setrow{gap:6px;margin:5px 0}
+.setrow .setno{width:40px;font-size:12px}
+.setrow input{padding:8px 8px;font-size:15px;border-radius:10px}
+.setrow input::placeholder{font-size:12px}
+.xbtn2{width:32px;height:32px;border-radius:9px;font-size:13px}
+.setrow > span[style*="width:40px"]{width:32px !important}
+/* 런닝 입력칸 작게 */
+.runform .field{margin:6px 0}
+.runform .field label{font-size:12px;margin-bottom:4px;color:var(--sub)}
+.runform .field input{padding:8px 10px;font-size:15px;border-radius:10px}
+/* WF4.2 루틴 ✕ (오늘 안 할 기구 빼기) */
+.routineline{display:flex;align-items:stretch;gap:6px;margin-bottom:6px}
+.routineline .routinerow{flex:1;min-width:0;margin-bottom:0}
+.rtskip{width:38px;flex-shrink:0;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--sub);font-size:13px;cursor:pointer}
+.rtskip:active{border-color:var(--accent);color:var(--accent)}
+.rtrestore{display:block;margin:2px 0 8px auto;background:none;border:0;color:var(--sub);font-size:12px;text-decoration:underline;cursor:pointer}

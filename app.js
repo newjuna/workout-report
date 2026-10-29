@@ -501,8 +501,11 @@ function runText(r){
 }
 function runFormHtml(){
   var r = LOG.running || {};
-  return '<div class="subcard">'
+  var runEq = '';
+  for(var k=0;k<GEAR.length;k++){ if(String(GEAR[k].name).indexOf('런닝') >= 0 && GEAR[k].thumb){ runEq = GEAR[k].name; break; } }
+  return '<div class="subcard runform">'
     + '<div class="drafthead">'
+    +   gearThumbHtml(runEq, 'dhthumb', 'footprints')
     +   '<b>런닝 입력</b>'
     +   '<button class="recentbtn' + (RUN_RECENT.show ? ' on' : '') + '" onclick="toggleRunRecent()">' + (RUN_RECENT.show ? '최근 기록 닫기' : '최근 기록') + '</button>'
     + '</div>'
@@ -573,16 +576,47 @@ function routineHtml(){
   var d = ROUTINE.data;
   if(!d) return '<p class="muted" style="margin:0 0 8px">지난번 ' + esc(LOG.workout) + ' 루틴 불러오는 중…</p>';
   if(!d.found || !d.items.length) return '';
+  var skips = LOG.skipRoutine || [];
+  var hidden = d.items.filter(function(it){ return skips.indexOf(routineKey(it)) >= 0; }).length;
   return '<div class="routinehead">지난번 <b>' + esc(LOG.workout) + '</b> 루틴 <span class="muted">' + esc(mdSlash(d.date)) + ' · 누르면 그날 기록으로 채워져요</span></div>'
     + d.items.map(function(it, i){
         var done = LOG.weights.some(function(w){ return w.equip === it.equip && (w.move||'') === (it.move||''); });
-        var first = it.sets[0] || {};
-        var sum = esc(first.weight) + 'kg×' + esc(first.reps) + (it.sets.length > 1 ? ' 외 ' + (it.sets.length-1) + '세트' : '');
-        return '<button class="routinerow' + (done ? ' done' : '') + '" onclick="pickRoutine(' + i + ')">'
-          + '<span class="rtname"><b>' + esc(it.equip) + '</b>' + (it.move ? ' · ' + esc(it.move) : '') + '</span>'
-          + '<span class="rtsets">' + (done ? '✓ 오늘 추가함' : sum) + '</span>'
-          + '</button>';
-      }).join('');
+        // 같은 기구가 루틴에 두 번 있을 때만 동작 이름을 작게 붙여 구분
+        var dup = d.items.some(function(o, j){ return j !== i && o.equip === it.equip; });
+        if(skips.indexOf(routineKey(it)) >= 0) return '';
+        return '<div class="routineline">'
+          + '<button class="routinerow' + (done ? ' done' : '') + '" onclick="pickRoutine(' + i + ')">'
+          +   gearThumbHtml(it.equip, 'rtthumb')
+          +   '<span class="rtname">' + esc(it.equip) + (dup && it.move ? ' <small>' + esc(it.move) + '</small>' : '') + '</span>'
+          +   (done ? '<span class="rtdone">✓</span>' : '')
+          + '</button>'
+          + '<button class="rtskip" onclick="skipRoutine(' + i + ')" aria-label="오늘은 안 해요">✕</button>'
+          + '</div>';
+      }).join('')
+    + (hidden ? '<button class="rtrestore" onclick="restoreRoutine()">뺀 기구 ' + hidden + '개 다시 보기</button>' : '');
+}
+/* 루틴 ✕ — 오늘 안 할 기구는 목록에서 빼기 (오늘 기록에만 저장, 지난 기록은 그대로) */
+function routineKey(it){ return (it.equip||'') + '|' + (it.move||''); }
+function skipRoutine(i){
+  var it = ROUTINE.data && ROUTINE.data.items && ROUTINE.data.items[i]; if(!it) return;
+  LOG.skipRoutine = LOG.skipRoutine || [];
+  if(LOG.skipRoutine.indexOf(routineKey(it)) < 0) LOG.skipRoutine.push(routineKey(it));
+  saveLog();
+  var box = $('routineBox'); if(box){ box.innerHTML = routineHtml(); icons(); }
+}
+function restoreRoutine(){
+  LOG.skipRoutine = []; saveLog();
+  var box = $('routineBox'); if(box){ box.innerHTML = routineHtml(); icons(); }
+}
+/* 기구 이름으로 등록 사진 찾기 → 작은 썸네일 (없으면 라인 아이콘) */
+function gearThumbOf(name){
+  for(var k=0;k<GEAR.length;k++){ if(GEAR[k].name === name) return GEAR[k].thumb || ''; }
+  return '';
+}
+function gearThumbHtml(name, cls, iconName){
+  var t = gearThumbOf(name);
+  return t ? '<img class="' + cls + '" src="' + esc(t) + '" alt="">'
+           : '<span class="' + cls + ' noimg">' + ic(iconName || 'dumbbell') + '</span>';
 }
 function pickRoutine(i){
   var it = ROUTINE.data && ROUTINE.data.items && ROUTINE.data.items[i]; if(!it) return;
@@ -685,6 +719,7 @@ function weightFormHtml(){
   }).join('');
   return '<div class="subcard">'
     + '<div class="drafthead">'
+    +   gearThumbHtml(DRAFT.equipName, 'dhthumb')
     +   '<b>' + esc(DRAFT.equipName) + '</b>'
     +   (DRAFT.moveName ? ' <span class="chip">' + esc(DRAFT.moveName) + '</span>' : '')
     +   '<button class="recentbtn' + (DRAFT.showRecent ? ' on' : '') + '" onclick="toggleRecent()">' + (DRAFT.showRecent ? '최근 기록 닫기' : '최근 기록') + '</button>'
