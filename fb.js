@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF3.6';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF3.7';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -456,14 +456,30 @@
     if (!MYW_CACHE) MYW_CACHE = await col('weights').where('uid', '==', u.uid).get().then(docsOf);
     const e = tidy(equip, 60), m = tidy(move, 60), before = tidy(beforeDate, 10) || '9999-12-31';
     const day = (w) => String(w.date).slice(0, 10);
-    const same = MYW_CACHE.filter((w) => w.equip === e && (w.move || '') === m && day(w) < before);
+    // 1순위: 같은 기구 + 같은 동작 / 없으면: 다른 기구라도 같은 동작 이름
+    let same = MYW_CACHE.filter((w) => w.equip === e && (w.move || '') === m && day(w) < before);
+    let other = false;
+    if (!same.length && m) {
+      same = MYW_CACHE.filter((w) => (w.move || '') === m && day(w) < before);
+      other = same.length > 0;
+    }
     if (!same.length) return { found: false };
-    const last = same.map(day).sort().pop();
-    const sets = same.filter((w) => day(w) === last)
-      .sort((a, b) => (a.setNo || 0) - (b.setNo || 0))
-      .map((w) => ({ weight: w.weight, reps: w.reps }));
-    let top = 0; sets.forEach((s) => { const v = Number(s.weight) || 0; if (v > top) top = v; });
-    return { found: true, date: last, sets, top };
+    // 날짜(+기구)별로 묶어서 최근 5번
+    const groups = {};
+    same.forEach((w) => {
+      const k = day(w) + '|' + (w.equip || '');
+      (groups[k] = groups[k] || { date: day(w), equip: w.equip || '', sets: [] }).sets.push(w);
+    });
+    const list = Object.values(groups)
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+      .slice(0, 5)
+      .map((g) => {
+        const sets = g.sets.sort((a, b) => (a.setNo || 0) - (b.setNo || 0))
+          .map((w) => ({ weight: w.weight, reps: w.reps }));
+        let top = 0; sets.forEach((s) => { const v = Number(s.weight) || 0; if (v > top) top = v; });
+        return { date: g.date, equip: g.equip, sets, top };
+      });
+    return { found: true, other, list };
   }
 
   /* ---------- 기록하기 시작 화면용: 내 마지막 운동 힌트 ---------- */

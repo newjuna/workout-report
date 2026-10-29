@@ -586,7 +586,6 @@ function setDraft(equip, move){
   DRAFT = { equipId:equip.id, equipName:equip.name, part:equip.part,
             moveName: move ? move.name : '', moveLink: move ? (move.link||'') : '', sets:[{weight:'',reps:''}], last:null };
   closePicker(); OPEN='weight'; renderLogView();
-  loadLastWeight();
 }
 function weightFormHtml(){
   if(!DRAFT) return '';
@@ -602,16 +601,24 @@ function weightFormHtml(){
     + '<div class="drafthead">'
     +   '<b>' + esc(DRAFT.equipName) + '</b>'
     +   (DRAFT.moveName ? ' <span class="chip">' + esc(DRAFT.moveName) + '</span>' : '')
+    +   '<button class="recentbtn' + (DRAFT.showRecent ? ' on' : '') + '" onclick="toggleRecent()">' + (DRAFT.showRecent ? '최근 기록 닫기' : '최근 기록') + '</button>'
     +   '<button class="howto" onclick="openHowto()">▶ 운동법 보기</button>'
     +   '<button class="linkback" onclick="openWeight()">바꾸기</button>'
     + '</div>'
-    + '<div class="lastbox" id="lastBox">' + lastWeightHtml(DRAFT.last) + '</div>'
+    + (DRAFT.showRecent ? '<div class="lastbox" id="lastBox">' + lastWeightHtml(DRAFT.last) + '</div>' : '')
     + '<div style="margin-top:8px">' + setsHtml + '</div>'
     + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
     + '<div class="row" style="margin-top:10px">'
     +   '<button class="button ghost" style="flex:1" onclick="OPEN=\'\';DRAFT=null;renderLogView()">취소</button>'
     +   '<button class="button accent" style="flex:2" onclick="confirmWeight()">추가</button>'
     + '</div></div>';
+}
+/* [최근 기록] 버튼 — 누르면 이 동작의 최근 기록 펼치기/닫기 */
+function toggleRecent(){
+  if(!DRAFT) return;
+  DRAFT.showRecent = !DRAFT.showRecent;
+  renderLogView();
+  if(DRAFT.showRecent && !DRAFT.last) loadLastWeight();
 }
 /* 지난번 같은 기구·동작 기록 불러오기 (화면 이동 없이 입력칸 위에 표시) */
 function loadLastWeight(){
@@ -629,11 +636,23 @@ function loadLastWeight(){
 function lastWeightHtml(l){
   if(!l) return '<span class="muted">지난번 기록 확인 중…</span>';
   if(l.err) return '<span class="muted">지난번 기록을 불러오지 못했어요.</span>';
-  if(!l.found) return '<span class="muted">이 동작은 처음이에요. 오늘 기록이 다음 기준이 돼요 💪</span>';
-  return '<div class="lasthead">지난번 <b>' + esc(mdSlash(l.date)) + '</b> · 최고 <span class="hl">' + esc(l.top) + 'kg</span></div>'
-    + '<div class="lastsets">' + l.sets.map(function(s, i){
-        return '<span>' + (i+1) + '세트 <b>' + esc(s.weight) + 'kg × ' + esc(s.reps) + '</b></span>';
-      }).join('') + '</div>';
+  if(!l.found) return '<span class="muted">아직 이 동작 기록이 없어요. 오늘 기록이 다음 기준이 돼요 💪</span>';
+  var list = l.list || [];
+  return (l.other ? '<div class="lastnote">이 기구로는 처음이라, 다른 기구로 한 같은 동작 기록이에요.</div>' : '')
+    + list.map(function(g, gi){
+      var reps = g.sets.map(function(s){ return s.reps; });
+      var sameAll = g.sets.length > 1 && g.sets.every(function(s){ return String(s.weight)===String(g.sets[0].weight) && String(s.reps)===String(g.sets[0].reps); });
+      var body = sameAll
+        ? '<span><b>' + esc(g.sets[0].weight) + 'kg × ' + esc(g.sets[0].reps) + '회 × ' + g.sets.length + '세트</b></span>'
+        : g.sets.map(function(s, i){ return '<span>' + (i+1) + '세트 <b>' + esc(s.weight) + 'kg × ' + esc(s.reps) + '</b></span>'; }).join('');
+      return '<div class="lastitem' + (gi===0 ? ' first' : '') + '">'
+        + '<div class="lasthead">' + (gi===0 ? '<span class="lasttag">가장 최근</span>' : '')
+        +   '<b>' + esc(mdSlash(g.date)) + '</b>'
+        +   (l.other && g.equip ? ' · ' + esc(g.equip) : '')
+        +   ' · ' + g.sets.length + '세트 · 최고 <span class="hl">' + esc(g.top) + 'kg</span></div>'
+        + '<div class="lastsets">' + body + '</div>'
+        + '</div>';
+    }).join('');
 }
 function addDraftSet(){ DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
 function delDraftSet(si){ DRAFT.sets.splice(si,1); if(!DRAFT.sets.length) DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
