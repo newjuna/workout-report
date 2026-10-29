@@ -623,7 +623,7 @@ function toggleRecent(){
 /* 지난번 같은 기구·동작 기록 불러오기 (화면 이동 없이 입력칸 위에 표시) */
 function loadLastWeight(){
   var d = DRAFT; if(!d) return;
-  call('lastWeightFor', d.equipName, d.moveName, LOG ? LOG.date : todayStr()).then(function(r){
+  call('lastWeightFor', d.equipName, d.moveName, LOG ? LOG.date : todayStr(), d.part || '').then(function(r){
     if(DRAFT !== d) return;
     d.last = r || { found:false };
     var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
@@ -638,8 +638,7 @@ function lastWeightHtml(l){
   if(l.err) return '<span class="muted">지난번 기록을 불러오지 못했어요.</span>';
   if(!l.found) return '<span class="muted">아직 이 동작 기록이 없어요. 오늘 기록이 다음 기준이 돼요 💪</span>';
   var list = l.list || [];
-  return (l.other ? '<div class="lastnote">이 기구로는 처음이라, 다른 기구로 한 같은 동작 기록이에요.</div>' : '')
-    + list.map(function(g, gi){
+  return list.map(function(g, gi){
       var reps = g.sets.map(function(s){ return s.reps; });
       var sameAll = g.sets.length > 1 && g.sets.every(function(s){ return String(s.weight)===String(g.sets[0].weight) && String(s.reps)===String(g.sets[0].reps); });
       var body = sameAll
@@ -648,7 +647,6 @@ function lastWeightHtml(l){
       return '<div class="lastitem' + (gi===0 ? ' first' : '') + '">'
         + '<div class="lasthead">' + (gi===0 ? '<span class="lasttag">가장 최근</span>' : '')
         +   '<b>' + esc(mdSlash(g.date)) + '</b>'
-        +   (l.other && g.equip ? ' · ' + esc(g.equip) : '')
         +   ' · ' + g.sets.length + '세트 · 최고 <span class="hl">' + esc(g.top) + 'kg</span></div>'
         + '<div class="lastsets">' + body + '</div>'
         + '</div>';

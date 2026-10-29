@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF3.7';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF3.8';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -451,18 +451,15 @@
   }
 
   /* ---------- 웨이트 입력 화면용: 이 기구·동작의 지난번 기록 ---------- */
-  async function lastWeightFor(equip, move, beforeDate) {
+  async function lastWeightFor(equip, move, beforeDate, part) {
     const u = requireUser();
     if (!MYW_CACHE) MYW_CACHE = await col('weights').where('uid', '==', u.uid).get().then(docsOf);
-    const e = tidy(equip, 60), m = tidy(move, 60), before = tidy(beforeDate, 10) || '9999-12-31';
+    const e = tidy(equip, 60), m = tidy(move, 60), p = tidy(part, 20), before = tidy(beforeDate, 10) || '9999-12-31';
     const day = (w) => String(w.date).slice(0, 10);
-    // 1순위: 같은 기구 + 같은 동작 / 없으면: 다른 기구라도 같은 동작 이름
-    let same = MYW_CACHE.filter((w) => w.equip === e && (w.move || '') === m && day(w) < before);
-    let other = false;
-    if (!same.length && m) {
-      same = MYW_CACHE.filter((w) => (w.move || '') === m && day(w) < before);
-      other = same.length > 0;
-    }
+    // 같은 부위 + 같은 기구 + 같은 동작만 (다른 부위·다른 기구 기록은 섞지 않음)
+    const same = MYW_CACHE.filter((w) => w.equip === e && (w.move || '') === m
+      && (!p || !w.part || w.part === p) && day(w) < before);
+    const other = false;
     if (!same.length) return { found: false };
     // 날짜(+기구)별로 묶어서 최근 5번
     const groups = {};
