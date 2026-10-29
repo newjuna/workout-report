@@ -467,3 +467,15 @@ select{-webkit-appearance:none;appearance:none;
 .lastitem:last-child{padding-bottom:0}
 .lasttag{display:inline-block;margin-right:6px;padding:1px 7px;border-radius:999px;background:var(--main);color:#10131a;font-size:11px;font-weight:800}
 .lastnote{color:var(--sub);font-size:12px;margin-bottom:8px}
+/* [지난번처럼 채우기] */
+.fillbtn{display:block;width:100%;margin-top:10px;padding:10px;border-radius:10px;border:0;background:var(--main);color:#10131a;font-size:13px;font-weight:800;cursor:pointer}
+/* 지난번 같은 부위 루틴 */
+.routinehead{font-size:13px;color:var(--sub);margin:0 0 8px}
+.routinehead b{color:var(--main)}
+.routinehead .muted{font-size:11px;margin-left:4px}
+.routinerow{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;margin-bottom:6px;padding:11px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:13px;text-align:left;cursor:pointer}
+.routinerow:active{border-color:var(--main)}
+.routinerow .rtname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.routinerow .rtsets{flex-shrink:0;color:var(--main);font-weight:700;font-size:12px}
+.routinerow.done{opacity:.5}
+.routinerow.done .rtsets{color:var(--sub)}

@@ -393,7 +393,7 @@ function doStartSession(){
   if(!date){ toast('날짜를 선택해 주세요.'); return; }
   if(!START_WORKOUT){ toast('오늘의 운동을 선택해 주세요.'); return; }
   LOG = { date:date, workout:START_WORKOUT, running:null, weights:[], fin:null, finText:'' };
-  START_WORKOUT=''; DRAFT=null; OPEN=''; RUN_RECENT={ show:false, data:null }; saveLog(); renderLogView();
+  START_WORKOUT=''; DRAFT=null; OPEN=''; RUN_RECENT={ show:false, data:null }; ROUTINE={ key:'', data:null }; saveLog(); renderLogView();
 }
 
 function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); wireFinInputs(); icons(); }
@@ -422,7 +422,7 @@ function logBodyHtml(){
         return '<div class="savedline">✓ <b>' + esc(w.equip) + '</b>' + mv + ' <span class="muted">' + esc(sets) + '</span>'
           + '<button class="xmini" onclick="delWeightItem(' + wi + ')">✕</button></div>';
       }).join('')
-    + (OPEN==='weight' ? weightFormHtml() : '<button class="softbtn" onclick="openWeight()">＋ 기구 추가</button>')
+    + (OPEN==='weight' ? weightFormHtml() : '<div id="routineBox">' + routineHtml() + '</div><button class="softbtn" onclick="openWeight()">＋ 기구 추가</button>')
     + (GEAR.length ? '' : '<p class="muted" style="margin-top:8px">먼저 <a onclick="switchTab(\'equip\')">기구 목록</a>에서 기구를 등록하세요.</p>')
     + '</div>';
 
@@ -543,7 +543,60 @@ function lastRunHtml(l){
       + '<div class="lasthead">' + (i===0 ? '<span class="lasttag">가장 최근</span>' : '') + '<b>' + esc(mdSlash(r.date)) + '</b></div>'
       + '<div class="lastsets"><span><b>' + esc(runText(r)) + '</b></span></div>'
       + '</div>';
-  }).join('');
+  }).join('')
+  + '<button class="fillbtn" onclick="fillRunFromLast()">지난번처럼 채우기</button>';
+}
+/* 런닝 [지난번처럼 채우기] — 가장 최근 런닝 값을 입력칸에 */
+function fillRunFromLast(){
+  var l = RUN_RECENT.data; if(!l || !l.found) return;
+  var r = l.list[0];
+  RUN_RECENT.show = false; renderLogView();
+  ['min','km','incline','speed','kcal'].forEach(function(k){ var el=$('run_'+k); if(el) el.value = (r[k]==null ? '' : r[k]); });
+  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
+}
+
+/* ---- 지난번 같은 부위 루틴 (기록하기 웨이트 카드) ---- */
+var ROUTINE = { key:'', data:null };
+function routineHtml(){
+  if(!LOG || !LOG.workout || PARTS.indexOf(LOG.workout) < 0) return '';
+  var key = LOG.date + '|' + LOG.workout;
+  if(ROUTINE.key !== key){
+    ROUTINE = { key:key, data:null };
+    call('routineFor', LOG.workout, LOG.date).then(function(r){
+      if(ROUTINE.key === key) ROUTINE.data = r || { found:false };
+    }).catch(function(){
+      if(ROUTINE.key === key) ROUTINE.data = { found:false };
+    }).then(function(){
+      var box = $('routineBox'); if(box && ROUTINE.key === key){ box.innerHTML = routineHtml(); icons(); }
+    });
+  }
+  var d = ROUTINE.data;
+  if(!d) return '<p class="muted" style="margin:0 0 8px">지난번 ' + esc(LOG.workout) + ' 루틴 불러오는 중…</p>';
+  if(!d.found || !d.items.length) return '';
+  return '<div class="routinehead">지난번 <b>' + esc(LOG.workout) + '</b> 루틴 <span class="muted">' + esc(mdSlash(d.date)) + ' · 누르면 그날 기록으로 채워져요</span></div>'
+    + d.items.map(function(it, i){
+        var done = LOG.weights.some(function(w){ return w.equip === it.equip && (w.move||'') === (it.move||''); });
+        var first = it.sets[0] || {};
+        var sum = esc(first.weight) + 'kg×' + esc(first.reps) + (it.sets.length > 1 ? ' 외 ' + (it.sets.length-1) + '세트' : '');
+        return '<button class="routinerow' + (done ? ' done' : '') + '" onclick="pickRoutine(' + i + ')">'
+          + '<span class="rtname"><b>' + esc(it.equip) + '</b>' + (it.move ? ' · ' + esc(it.move) : '') + '</span>'
+          + '<span class="rtsets">' + (done ? '✓ 오늘 추가함' : sum) + '</span>'
+          + '</button>';
+      }).join('');
+}
+function pickRoutine(i){
+  var it = ROUTINE.data && ROUTINE.data.items && ROUTINE.data.items[i]; if(!it) return;
+  var eq = null;
+  for(var k=0;k<GEAR.length;k++){ if(GEAR[k].name === it.equip){ eq = GEAR[k]; break; } }
+  if(!eq) eq = { id:'', name:it.equip, part:LOG.workout, moves:[] };
+  var mv = null;
+  (eq.moves||[]).forEach(function(m){ if(!mv && m.name === it.move) mv = m; });
+  if(!mv && it.move) mv = { name:it.move, link:'' };
+  setDraft(eq, mv);
+  DRAFT.sets = it.sets.map(function(s){ return { weight:String(s.weight), reps:String(s.reps) }; });
+  renderLogView();
+  var lg = $('log'), f = lg && lg.querySelector('.subcard .setrow input'); if(f && f.scrollIntoView) f.scrollIntoView({ block:'center', behavior:'smooth' });
+  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
 }
 function numField(id, label, ph, val){
   return '<div class="field"><label>' + label + '</label><input id="' + id + '" type="number" inputmode="decimal" placeholder="' + ph + '" value="' + (val==null?'':esc(val)) + '"></div>';
@@ -683,9 +736,23 @@ function lastWeightHtml(l){
         +   ' · ' + g.sets.length + '세트 · 최고 <span class="hl">' + esc(g.top) + 'kg</span></div>'
         + '<div class="lastsets">' + body + '</div>'
         + '</div>';
-    }).join('');
+    }).join('')
+    + '<button class="fillbtn" onclick="fillFromLast()">지난번처럼 채우기</button>';
 }
-function addDraftSet(){ DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
+/* 세트 추가 — 바로 앞 세트의 무게·횟수를 그대로 복사 */
+function addDraftSet(){
+  var prev = DRAFT.sets[DRAFT.sets.length-1] || {weight:'',reps:''};
+  DRAFT.sets.push({ weight:prev.weight, reps:prev.reps });
+  renderLogView();
+}
+/* [지난번처럼 채우기] — 가장 최근 기록의 세트를 입력칸에 그대로 */
+function fillFromLast(){
+  var l = DRAFT && DRAFT.last;
+  if(!l || !l.found || !l.list || !l.list.length) return;
+  DRAFT.sets = l.list[0].sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; });
+  DRAFT.showRecent = false;
+  renderLogView(); toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
+}
 function delDraftSet(si){ DRAFT.sets.splice(si,1); if(!DRAFT.sets.length) DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
 /* 웨이트 기구 1개를 LOG.weights에 추가 (서버 아님) */
 function confirmWeight(){

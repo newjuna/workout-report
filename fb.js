@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF3.9';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF4.0';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -479,6 +479,28 @@
     return { found: true, other, list };
   }
 
+  /* ---------- 기록하기: 지난번 같은 부위 날의 루틴 (기구·동작 목록 + 그날 세트) ---------- */
+  async function routineFor(part, beforeDate) {
+    const u = requireUser();
+    if (!MYW_CACHE) MYW_CACHE = await col('weights').where('uid', '==', u.uid).get().then(docsOf);
+    const p = tidy(part, 20), before = tidy(beforeDate, 10) || '9999-12-31';
+    if (!p) return { found: false };
+    const day = (w) => String(w.date).slice(0, 10);
+    const mine = MYW_CACHE.filter((w) => w.part === p && day(w) < before);
+    if (!mine.length) return { found: false };
+    const last = mine.map(day).sort().pop();
+    const ms = (t) => (t && t.toMillis ? t.toMillis() : (t && t.seconds ? t.seconds * 1000 : Number(t) || 0));
+    const rows = mine.filter((w) => day(w) === last)
+      .sort((a, b) => (ms(a.createdAt) - ms(b.createdAt)) || ((a.setNo || 0) - (b.setNo || 0)));
+    const items = [], idx = {};
+    rows.forEach((w) => {
+      const k = (w.equip || '') + '|' + (w.move || '');
+      if (!(k in idx)) { idx[k] = items.length; items.push({ equip: w.equip || '', move: w.move || '', sets: [] }); }
+      items[idx[k]].sets.push({ weight: w.weight == null ? '' : w.weight, reps: w.reps == null ? '' : w.reps });
+    });
+    return { found: true, date: last, items };
+  }
+
   /* ---------- 런닝 입력 화면용: 내 최근 런닝 기록 (최근 5번) ---------- */
   async function lastRunFor(beforeDate) {
     const u = requireUser();
@@ -626,7 +648,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor, lastRunFor };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor, lastRunFor, routineFor };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
