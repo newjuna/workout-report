@@ -567,8 +567,7 @@ function pickHtml(){
         + (e.thumb ? '<img class="eqimg" src="' + esc(e.thumb) + '" alt="">' : '<span class="eqimg noimg">' + ic('dumbbell') + '</span>')
         + '<span class="eqname">' + esc(e.name) + (done ? ' <b class="ok">✓</b>' : '') + '</span></button>');
     });
-    h += '<button class="loadbtn" onclick="openWeightRecent()">' + ic('history') + ' ' + esc(cat) + ' 최근 기록 불러오기</button>'
-      + (rows.length ? '<div class="eqgrid2">' + rows.join('') + '</div>'
+    h += (rows.length ? '<div class="eqgrid2">' + rows.join('') + '</div>'
           : '<p class="muted">' + esc(cat) + ' 기구가 없어요. <a onclick="switchTab(\'equip\')">기구 목록</a>에서 등록해 주세요.</p>');
   }
   h += '<button class="finnext' + (n ? ' ready' : '') + '" onclick="goFin()">다 끝났어요 → 오운완 등록</button>';
@@ -671,61 +670,10 @@ function startDraft(equip, move, sets){
             sets: sets || [{weight:'',reps:''}], last:null, editIdx:null };
   MOVE_EQUIP = null; goStep('sets');
 }
-/* 웨이트 최근 기록 팝업 — 오늘 부위 기구만, 누르면 그때 세트로 채움 */
-function openWeightRecent(){
-  //  1단계: 이 부위를 한 최근 날짜 5일 → 2단계: 그날 한 기구 목록 → 누르면 그 세트로 채움
-  var part = LOG.cat;
-  if(PARTS.indexOf(part) < 0) return;
-  openSheet(esc(part) + ' 최근 기록', '<p class="muted">불러오는 중…</p>');
-  // 한 번 불러온 날짜는 기억 (뒤로 갔다 와도 그대로, 같은 날짜·부위일 때)
-  var key = LOG.date + '|' + part;
-  if(RECENT_DAYS.key === key && RECENT_DAYS.days){ renderRecentDays(); return; }
-  call('recentDaysByPart', part, LOG.date, 5).then(function(r){
-    RECENT_DAYS = { key:key, days:(r && r.found) ? r.days : [] };
-    renderRecentDays();
-  }).catch(function(e){ var b=$('sheetBody'); if(b) b.innerHTML = '<p class="muted">불러오지 못했어요: ' + esc(e&&e.message||e) + '</p>'; });
-}
-var RECENT_DAYS = { key:'', days:null };
 var WEEKDAY = ['일','월','화','수','목','금','토'];
 function dayLabel(ymdStr){
   var d = new Date(String(ymdStr).slice(0,10) + 'T00:00:00');
   return mdSlash(ymdStr) + (isNaN(d) ? '' : ' (' + WEEKDAY[d.getDay()] + ')');
-}
-function renderRecentDays(){
-  var body = $('sheetBody'); if(!body) return;
-  var days = RECENT_DAYS.days || [];
-  if(!days.length){ body.innerHTML = '<p class="muted">아직 ' + esc(LOG.cat) + ' 기록이 없어요.</p>'; return; }
-  body.innerHTML = '<p class="muted" style="margin:0 0 10px">날짜를 누르면 그날 한 기구가 나와요</p>'
-    + days.map(function(d, i){
-        var names = d.items.map(function(x){ return x.equip; }).filter(function(n, j, a){ return a.indexOf(n) === j; });
-        return '<button class="rrow' + (i===0?' first':'') + '" onclick="renderRecentDay(' + i + ')">'
-          + '<div class="rrtext"><div class="rrname">' + esc(dayLabel(d.date)) + (i===0 ? ' <span class="lasttag">가장 최근</span>' : '') + '</div>'
-          + '<div class="rrsub">' + esc(names.join(' · ')) + '</div></div>'
-          + '<span class="rrgo">' + d.items.length + '개 ›</span></button>';
-      }).join('');
-}
-function renderRecentDay(di){
-  var body = $('sheetBody'), d = (RECENT_DAYS.days || [])[di]; if(!body || !d) return;
-  body.innerHTML = '<button class="linkback" style="padding:0 0 10px" onclick="renderRecentDays()">‹ 날짜 다시 고르기</button>'
-    + '<p class="muted" style="margin:0 0 10px"><b style="color:var(--text)">' + esc(dayLabel(d.date)) + '</b> · 기구를 누르면 그때 세트·무게·횟수로 채워져요</p>'
-    + d.items.map(function(x, i){
-        var dup = d.items.some(function(o, j){ return j !== i && o.equip === x.equip; });
-        var done = LOG.weights.some(function(w){ return w.equip === x.equip && (w.move||'') === (x.move||''); });
-        return '<button class="rrow' + (done?' done':'') + '" onclick="pickRecentWeight(' + di + ',' + i + ')">'
-          + gearThumbHtml(x.equip, 'rrthumb')
-          + '<div class="rrtext"><div class="rrname">' + esc(x.equip) + (dup && x.move ? ' <small>' + esc(x.move) + '</small>' : '') + (done ? ' <b class="ok">✓</b>' : '') + '</div>'
-          + '<div class="rrsub">' + x.sets.length + '세트' + (x.top ? ' · 최고 ' + esc(x.top) + 'kg' : '') + '</div></div>'
-          + '<span class="rrgo">불러오기</span></button>';
-      }).join('');
-  icons();
-}
-function pickRecentWeight(di, i){
-  var d = (RECENT_DAYS.days || [])[di], x = d && d.items[i]; if(!x) return;
-  var eq = gearByName(x.equip) || { id:'', name:x.equip, part:LOG.cat, moves:[] };
-  var mv = moveOf(eq, x.move) || (x.move ? { name:x.move, link:'' } : null);
-  closeSheet();
-  startDraft(eq, mv, x.sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; }));
-  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
 }
 
 /* ---- ⑤ 세트 입력 ---- */
@@ -746,65 +694,53 @@ function setsStepHtml(){
     + '</div>'
     + '<div class="fhbtns">'
     +   '<button class="howto" onclick="openHowto()">▶ 운동법 보기</button>'
-    +   '<button class="recentbtn' + (DRAFT.showRecent ? ' on' : '') + '" onclick="toggleRecent()">' + (DRAFT.showRecent ? '최근 기록 닫기' : '↺ 최근 기록') + '</button>'
     + '</div>'
-    + (DRAFT.showRecent ? '<div class="lastbox" id="lastBox">' + lastWeightHtml(DRAFT.last) + '</div>' : '')
+    + '<button class="loadbtn" onclick="openWeightLast()">' + ic('history') + ' 최근 기록 불러오기</button>'
     + '<div style="margin-top:8px">' + setsHtml + '</div>'
     + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
     + stepFoot('cancelDraft()', '취소', 'confirmWeight()', '저장하고 다음');
 }
 function cancelDraft(){ DRAFT = null; goStep('pick'); }
-/* [최근 기록] 버튼 — 이 기구·동작의 최근 기록 펼치기/닫기 */
-function toggleRecent(){
-  if(!DRAFT) return;
-  DRAFT.showRecent = !DRAFT.showRecent;
-  renderLogView();
-  if(DRAFT.showRecent && !DRAFT.last) loadLastWeight();
-}
-function loadLastWeight(){
+/* [최근 기록 불러오기] — 이 기구·동작의 최근 5번을 날짜별 팝업으로 (런닝과 같은 모양) */
+function openWeightLast(){
   var d = DRAFT; if(!d) return;
-  call('lastWeightFor', d.equipName, d.moveName, LOG ? LOG.date : todayStr(), d.part || '').then(function(r){
+  openSheet(esc(d.equipName) + ' 최근 기록', '<p class="muted">불러오는 중…</p>');
+  if(d.last){ renderWeightLast(); return; }   // 한 번 불러온 건 다시 안 불러옴
+  call('lastWeightFor', d.equipName, d.moveName, LOG.date, d.part || '').then(function(r){
     if(DRAFT !== d) return;
     d.last = r || { found:false };
-    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
-  }).catch(function(){
-    if(DRAFT !== d) return;
-    d.last = { found:false, err:true };
-    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
-  });
+    renderWeightLast();
+  }).catch(function(e){ var b=$('sheetBody'); if(b) b.innerHTML = '<p class="muted">불러오지 못했어요: ' + esc(e&&e.message||e) + '</p>'; });
 }
-function lastWeightHtml(l){
-  if(!l) return '<span class="muted">지난번 기록 확인 중…</span>';
-  if(l.err) return '<span class="muted">지난번 기록을 불러오지 못했어요.</span>';
-  if(!l.found) return '<span class="muted">아직 이 동작 기록이 없어요. 오늘 기록이 다음 기준이 돼요 💪</span>';
-  var list = l.list || [];
-  return list.map(function(g, gi){
-      var sameAll = g.sets.length > 1 && g.sets.every(function(s){ return String(s.weight)===String(g.sets[0].weight) && String(s.reps)===String(g.sets[0].reps); });
-      var body = sameAll
-        ? '<span><b>' + esc(g.sets[0].weight) + 'kg × ' + esc(g.sets[0].reps) + '회 × ' + g.sets.length + '세트</b></span>'
-        : g.sets.map(function(s, i){ return '<span>' + (i+1) + '세트 <b>' + esc(s.weight) + 'kg × ' + esc(s.reps) + '</b></span>'; }).join('');
-      return '<div class="lastitem' + (gi===0 ? ' first' : '') + '">'
-        + '<div class="lasthead">' + (gi===0 ? '<span class="lasttag">가장 최근</span>' : '')
-        +   '<b>' + esc(mdSlash(g.date)) + '</b>'
-        +   ' · ' + g.sets.length + '세트 · 최고 <span class="hl">' + esc(g.top) + 'kg</span></div>'
-        + '<div class="lastsets">' + body + '</div>'
-        + '</div>';
-    }).join('')
-    + '<button class="fillbtn" onclick="fillFromLast()">지난번처럼 채우기</button>';
+function weightSetsText(sets){
+  if(!sets.length) return '';
+  var same = sets.length > 1 && sets.every(function(s){ return String(s.weight)===String(sets[0].weight) && String(s.reps)===String(sets[0].reps); });
+  if(same) return sets[0].weight + 'kg×' + sets[0].reps + ' × ' + sets.length + '세트';
+  return sets.map(function(s){ return s.weight + 'kg×' + s.reps; }).join(' · ');
+}
+function renderWeightLast(){
+  var body = $('sheetBody'), l = DRAFT && DRAFT.last; if(!body || !l) return;
+  var list = (l.found && l.list) ? l.list : [];
+  if(!list.length){ body.innerHTML = '<p class="muted">아직 이 동작 기록이 없어요. 오늘 기록이 다음 기준이 돼요 💪</p>'; return; }
+  body.innerHTML = '<p class="muted" style="margin:0 0 10px">누르면 그 기록으로 채워져요</p>'
+    + list.map(function(g, i){
+        return '<button class="rrow' + (i===0?' first':'') + '" onclick="fillWeightFrom(' + i + ')">'
+          + '<div class="rrtext"><div class="rrname">' + esc(dayLabel(g.date)) + (i===0 ? ' <span class="lasttag">가장 최근</span>' : '') + '</div>'
+          + '<div class="rrsub">' + g.sets.length + '세트 · ' + esc(weightSetsText(g.sets)) + '</div></div>'
+          + '<span class="rrgo">불러오기</span></button>';
+      }).join('');
+}
+function fillWeightFrom(i){
+  var g = DRAFT && DRAFT.last && DRAFT.last.list && DRAFT.last.list[i]; if(!g) return;
+  DRAFT.sets = g.sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; });
+  closeSheet(); renderLogView();
+  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
 }
 /* 세트 추가 — 바로 앞 세트의 무게·횟수를 그대로 복사 */
 function addDraftSet(){
   var prev = DRAFT.sets[DRAFT.sets.length-1] || {weight:'',reps:''};
   DRAFT.sets.push({ weight:prev.weight, reps:prev.reps });
   renderLogView();
-}
-/* [지난번처럼 채우기] — 가장 최근 기록의 세트를 입력칸에 그대로 */
-function fillFromLast(){
-  var l = DRAFT && DRAFT.last;
-  if(!l || !l.found || !l.list || !l.list.length) return;
-  DRAFT.sets = l.list[0].sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; });
-  DRAFT.showRecent = false;
-  renderLogView(); toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
 }
 function delDraftSet(si){ DRAFT.sets.splice(si,1); if(!DRAFT.sets.length) DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
 /* 세트 저장 → 새로 추가면 다음 기구 고르기로, 고치기면 뭐 할래요로 */
