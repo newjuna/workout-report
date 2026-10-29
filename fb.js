@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF3.8';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF3.9';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -479,6 +479,22 @@
     return { found: true, other, list };
   }
 
+  /* ---------- 런닝 입력 화면용: 내 최근 런닝 기록 (최근 5번) ---------- */
+  async function lastRunFor(beforeDate) {
+    const u = requireUser();
+    const before = tidy(beforeDate, 10) || '9999-12-31';
+    const day = (r) => String(r.date).slice(0, 10);
+    const runs = await col('running').where('uid', '==', u.uid).get().then(docsOf);
+    const list = runs.filter((r) => day(r) < before)
+      .sort((a, b) => (day(a) < day(b) ? 1 : day(a) > day(b) ? -1 : 0))
+      .slice(0, 5)
+      .map((r) => {
+        const v = (x) => (x == null ? '' : x);
+        return { date: day(r), min: v(r.min), km: v(r.km), incline: v(r.incline), speed: v(r.speed), kcal: v(r.kcal) };
+      });
+    return list.length ? { found: true, list } : { found: false };
+  }
+
   /* ---------- 기록하기 시작 화면용: 내 마지막 운동 힌트 ---------- */
   async function workoutHint() {
     const u = requireUser();
@@ -610,7 +626,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor, lastRunFor };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));

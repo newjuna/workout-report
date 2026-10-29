@@ -393,7 +393,7 @@ function doStartSession(){
   if(!date){ toast('날짜를 선택해 주세요.'); return; }
   if(!START_WORKOUT){ toast('오늘의 운동을 선택해 주세요.'); return; }
   LOG = { date:date, workout:START_WORKOUT, running:null, weights:[], fin:null, finText:'' };
-  START_WORKOUT=''; DRAFT=null; OPEN=''; saveLog(); renderLogView();
+  START_WORKOUT=''; DRAFT=null; OPEN=''; RUN_RECENT={ show:false, data:null }; saveLog(); renderLogView();
 }
 
 function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); wireFinInputs(); icons(); }
@@ -502,7 +502,12 @@ function runText(r){
 function runFormHtml(){
   var r = LOG.running || {};
   return '<div class="subcard">'
-    + '<div class="grid2">'
+    + '<div class="drafthead">'
+    +   '<b>런닝 입력</b>'
+    +   '<button class="recentbtn' + (RUN_RECENT.show ? ' on' : '') + '" onclick="toggleRunRecent()">' + (RUN_RECENT.show ? '최근 기록 닫기' : '최근 기록') + '</button>'
+    + '</div>'
+    + (RUN_RECENT.show ? '<div class="lastbox" id="runLastBox">' + lastRunHtml(RUN_RECENT.data) + '</div>' : '')
+    + '<div class="grid2" style="margin-top:10px">'
     +   numField('run_min','시간(분)','10',r.min) + numField('run_km','거리(km)','1.2',r.km)
     +   numField('run_incline','경사','3',r.incline) + numField('run_speed','속도(km/h)','7',r.speed)
     +   numField('run_kcal','칼로리','90',r.kcal) + '<div></div>'
@@ -511,6 +516,34 @@ function runFormHtml(){
     +   '<button class="button ghost" style="flex:1" onclick="OPEN=\'\';renderLogView()">취소</button>'
     +   '<button class="button accent" style="flex:2" onclick="saveRun()">추가</button>'
     + '</div></div>';
+}
+/* 런닝 [최근 기록] 버튼 — 입력 중인 값은 지키면서 펼치기/닫기 */
+var RUN_RECENT = { show:false, data:null };
+function toggleRunRecent(){
+  var keep = { min:val('run_min'), km:val('run_km'), incline:val('run_incline'), speed:val('run_speed'), kcal:val('run_kcal') };
+  RUN_RECENT.show = !RUN_RECENT.show;
+  renderLogView();
+  ['min','km','incline','speed','kcal'].forEach(function(k){ var el=$('run_'+k); if(el && keep[k]!=='') el.value = keep[k]; });
+  if(RUN_RECENT.show && !RUN_RECENT.data){
+    call('lastRunFor', LOG ? LOG.date : todayStr()).then(function(r){
+      RUN_RECENT.data = r || { found:false };
+    }).catch(function(){
+      RUN_RECENT.data = { found:false, err:true };
+    }).then(function(){
+      var box = $('runLastBox'); if(box) box.innerHTML = lastRunHtml(RUN_RECENT.data);
+    });
+  }
+}
+function lastRunHtml(l){
+  if(!l) return '<span class="muted">최근 기록 확인 중…</span>';
+  if(l.err) return '<span class="muted">최근 기록을 불러오지 못했어요.</span>';
+  if(!l.found) return '<span class="muted">아직 런닝 기록이 없어요. 오늘 기록이 다음 기준이 돼요 🏃</span>';
+  return l.list.map(function(r, i){
+    return '<div class="lastitem' + (i===0 ? ' first' : '') + '">'
+      + '<div class="lasthead">' + (i===0 ? '<span class="lasttag">가장 최근</span>' : '') + '<b>' + esc(mdSlash(r.date)) + '</b></div>'
+      + '<div class="lastsets"><span><b>' + esc(runText(r)) + '</b></span></div>'
+      + '</div>';
+  }).join('');
 }
 function numField(id, label, ph, val){
   return '<div class="field"><label>' + label + '</label><input id="' + id + '" type="number" inputmode="decimal" placeholder="' + ph + '" value="' + (val==null?'':esc(val)) + '"></div>';
