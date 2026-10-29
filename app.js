@@ -358,17 +358,16 @@ function renderLog(){
     normalizeLog(); renderLogView();
   });
 }
-var START_WORKOUT = '';
 function renderLogStart(){
   $('log').innerHTML =
     '<div class="card">'
     + '<h2>오늘 운동 시작</h2>'
     + '<div class="field"><label>날짜</label><input type="date" id="logDate" value="' + todayStr() + '"></div>'
-    + '<div class="field"><label>오늘 웨이트 부위</label><div class="wchips" id="wchips">'
-    +   WORKOUTS.map(function(w){ return '<button class="wchip' + (START_WORKOUT===w?' on':'') + '" data-w="' + esc(w) + '" onclick="pickWorkout(\'' + esc(w) + '\')">' + esc(workoutLabel(w)) + '</button>'; }).join('')
-    + '</div></div>'
-    + '<p class="muted" style="margin:-4px 0 10px;font-size:12px">웨이트 기구와 최근 기록을 이 부위 것만 보여줘요. 유산소만 하는 날은 <b>유산소만</b>을 골라요.</p>'
-    + '<button class="button accent" style="width:100%;margin-top:6px" onclick="doStartSession()">운동 시작하기</button>'
+    + '<div class="steph" style="font-size:16px;margin-top:6px">뭐부터 시작할까요?</div>'
+    + '<div class="startpick">'
+    +   '<button class="pickbig" onclick="doStartSession(\'유산소\')">' + ic('footprints') + '<div class="pn">유산소</div><div class="ps">런닝머신 · 천국의 계단 · 사이클</div></button>'
+    +   '<button class="pickbig" onclick="doStartSession(\'웨이트\')">' + ic('dumbbell') + '<div class="pn">웨이트</div><div class="ps">가슴 · 어깨 · 등 · 팔 · 하체</div></button>'
+    + '</div>'
     + '</div>'
     + '<div class="card hintcard" id="hintCard"><div class="muted">지난 운동 확인 중…</div></div>';
   call('workoutHint').then(function(h){
@@ -384,20 +383,17 @@ function hintText(h){
   if(h.daysAgo <= 1) return '어제는 ' + last + ' 운동을 했어요. 오늘은 다른 부위를 해볼까요? 🔥';
   return hl(h.daysAgo + '일 전') + '에 ' + last + ' 운동을 했어요. 오늘 다시 가볍게 시작해봐요! 💪';
 }
-function pickWorkout(w){ START_WORKOUT = (START_WORKOUT===w?'':w);
-  Array.prototype.forEach.call(document.querySelectorAll('#wchips .wchip'), function(b){ b.classList.toggle('on', b.getAttribute('data-w')===START_WORKOUT); });
-}
-function doStartSession(){
+/* 시작: 유산소 → 유산소 종목 고르기 / 웨이트 → 부위 고르기 */
+function doStartSession(kind){
   var date = $('logDate').value;
   if(!date){ toast('날짜를 선택해 주세요.'); return; }
-  if(!START_WORKOUT){ toast('오늘의 운동을 선택해 주세요.'); return; }
-  LOG = { date:date, workout:START_WORKOUT, cardio:[], weights:[], fin:null, finText:'' };
-  START_WORKOUT=''; resetSteps(); saveLog(); goStep('menu');
+  LOG = { date:date, workout:'', cat:(kind==='유산소' ? '유산소' : ''), cardio:[], weights:[], fin:null, finText:'' };
+  resetSteps(); saveLog(); goStep('pick');
 }
 
 /* ====================================================================
  * 기록하기 — 단계별 화면 (WF5.0)
- *  STEP: 'menu'(뭐 할래요) → 'cardio'(유산소 입력) / 'equip'(기구) → 'move'(동작) → 'sets'(세트)
+ *  시작(유산소/웨이트) → STEP 'pick'(부위 칩 + 기구/유산소 종목) → 'cardio'(유산소 입력) / 'move'(동작) → 'sets'(세트)
  *        → 'fin'(오운완) → 운동 완료
  *  상단 탭: 끝낸 운동이 쌓임. 누르면 고치기/지우기
  * ==================================================================== */
@@ -412,11 +408,11 @@ var CARDIO_TYPES = [
 var CARDIO_KEYS = ['min','km','incline','speed','floors','level','kcal'];
 function cardioDef(t){ for(var i=0;i<CARDIO_TYPES.length;i++){ if(CARDIO_TYPES[i].type===t) return CARDIO_TYPES[i]; } return CARDIO_TYPES[0]; }
 
-var STEP = 'menu';
+var STEP = 'pick';
 var CARDIO_EDIT = null;   // { type, idx(-1=새로), vals }
 var TAB_SEL = null;       // { kind:'cardio'|'weight', idx }
-var EQ_PART_SEL = '';     // 기구 고르기 화면의 부위 칩
 var MOVE_EQUIP = null;    // 동작 고르기 중인 기구
+// LOG.cat = 지금 고른 칩 (가슴/어깨/등/팔/하체/유산소). 화면 ②에서 무엇을 보여줄지 정함
 var RECENT_LIST = [];     // 최근 기록 팝업 목록
 
 /* 예전 형식(LOG.running 1개) → 새 형식(LOG.cardio 여러 개) */
@@ -428,28 +424,42 @@ function normalizeLog(){
   }
   delete LOG.running; delete LOG.skipRoutine;
   if(!Array.isArray(LOG.weights)) LOG.weights = [];
+  if(LOG.cat == null){   // 예전 형식: 시작할 때 고른 부위를 칩으로
+    LOG.cat = PARTS.indexOf(LOG.workout) >= 0 ? LOG.workout : (LOG.workout === '유산소' ? '유산소' : '');
+  }
 }
-function hasWeightDay(){ return !!(LOG && LOG.workout && LOG.workout !== '유산소'); }
-function workoutLabel(w){ return w === '유산소' ? '유산소만' : w; }
-function resetSteps(){ STEP='menu'; CARDIO_EDIT=null; TAB_SEL=null; MOVE_EQUIP=null; DRAFT=null; EQ_PART_SEL=''; }
+/* 오늘 한 부위들 (상단 표시·세션 저장용) */
+function dayParts(){
+  var out = [];
+  LOG.weights.forEach(function(w){ if(w.part && out.indexOf(w.part) < 0) out.push(w.part); });
+  if(LOG.cardio.length) out.push('유산소');
+  return out;
+}
+/* 세션의 대표 운동 = 세트가 가장 많은 부위 (웨이트 없으면 유산소) */
+function dayWorkout(){
+  var cnt = {}, best = '', bestN = 0;
+  LOG.weights.forEach(function(w){ cnt[w.part] = (cnt[w.part]||0) + (w.sets||[]).length; });
+  Object.keys(cnt).forEach(function(p){ if(cnt[p] > bestN && WORKOUTS.indexOf(p) >= 0){ best = p; bestN = cnt[p]; } });
+  return best || (LOG.cardio.length ? '유산소' : '');
+}
+function resetSteps(){ STEP='pick'; CARDIO_EDIT=null; TAB_SEL=null; MOVE_EQUIP=null; DRAFT=null; }
 
 function goStep(s){ STEP = s; TAB_SEL = null; renderLogView(); try{ window.scrollTo(0,0); }catch(e){} }
 function renderLogView(){
   normalizeLog();
-  if(STEP==='cardio' && !CARDIO_EDIT) STEP='menu';
-  if(STEP==='sets' && !DRAFT) STEP='equip';
-  if(STEP==='move' && !MOVE_EQUIP) STEP='equip';
-  if((STEP==='equip' || STEP==='move') && !hasWeightDay()) STEP='menu';
+  if(STEP==='menu' || STEP==='equip') STEP='pick';
+  if(STEP==='cardio' && !CARDIO_EDIT) STEP='pick';
+  if(STEP==='sets' && !DRAFT) STEP='pick';
+  if(STEP==='move' && !MOVE_EQUIP) STEP='pick';
   $('log').innerHTML = logTopHtml() + '<div class="card stepcard">' + stepBodyHtml() + '</div>';
   wirePhotoButtons(); wireFinInputs(); icons();
 }
 function stepBodyHtml(){
   if(STEP==='cardio') return cardioHtml();
-  if(STEP==='equip')  return equipStepHtml();
   if(STEP==='move')   return moveStepHtml();
   if(STEP==='sets')   return setsStepHtml();
   if(STEP==='fin')    return finStepHtml();
-  return menuHtml();
+  return pickHtml();
 }
 function stepFoot(aFn, aLabel, bFn, bLabel){
   return '<div class="stepfoot">'
@@ -474,7 +484,7 @@ function logTopHtml(){
       : '<button class="steptab done' + (sel?' sel':'') + '" onclick="selTab(\'weight\',' + i + ')">' + esc(w.equip) + ' ✓</button>');
   });
   if(STEP==='cardio' && editC < 0) tabs.push('<span class="steptab now">' + esc(CARDIO_EDIT.type) + '</span>');
-  if(STEP==='equip' || STEP==='move') tabs.push('<span class="steptab now">웨이트</span>');
+  if(STEP==='move' && MOVE_EQUIP) tabs.push('<span class="steptab now">' + esc(MOVE_EQUIP.name) + '</span>');
   if(STEP==='sets' && editW < 0) tabs.push('<span class="steptab now">' + esc(DRAFT.equipName) + '</span>');
   tabs.push('<button class="steptab fin' + (STEP==='fin'?' now':'') + '" onclick="goFin()">오운완</button>');
 
@@ -489,7 +499,7 @@ function logTopHtml(){
   }
   return '<div class="card steptop">'
     + '<div class="row" style="justify-content:space-between;align-items:center">'
-    +   '<div><b>' + esc(mdSlash(LOG.date)) + '</b>' + (LOG.workout ? ' <span class="chip">' + esc(workoutLabel(LOG.workout)) + '</span>' : '') + '</div>'
+    +   '<div><b>' + esc(mdSlash(LOG.date)) + '</b>' + dayParts().map(function(p){ return ' <span class="chip">' + esc(p) + '</span>'; }).join('') + '</div>'
     +   '<button class="linkbtn-del" onclick="discardLog()">기록 취소</button>'
     + '</div>'
     + '<div class="steptabs">' + tabs.join('') + '</div>'
@@ -527,27 +537,44 @@ function delTab(){
 }
 function goFin(){ CARDIO_EDIT=null; DRAFT=null; MOVE_EQUIP=null; goStep('fin'); }
 
-/* ---- ② 뭐 할래요? ---- */
-function menuHtml(){
+/* ---- ② 뭐 할래요? — 부위 칩(가슴·어깨·등·팔·하체·유산소) + 아래에 기구 / 유산소 종목 ---- */
+function pickCats(){ return PARTS.concat(['유산소']); }
+function pickHtml(){
   var n = LOG.cardio.length + LOG.weights.length;
-  var h = '<div class="steph">' + (n ? '다음은 뭐 할래요?' : '뭐 할래요?') + '</div>'
+  var cat = LOG.cat || '';
+  var h = '<div class="steph">' + (n ? '다음은 뭐 할래요?' : (cat==='유산소' ? '어떤 유산소 할래요?' : (cat ? '어떤 기구 할래요?' : '어떤 부위 할래요?'))) + '</div>'
     + '<div class="stepsub">' + (n ? n + '개 끝냈어요 💪' : '끝낸 운동은 위에 쌓여요') + '</div>'
-    + '<div class="pickgrid">'
-    + CARDIO_TYPES.map(function(c, i){
+    + '<div class="wchips catchips">' + pickCats().map(function(p){
+        var did = p==='유산소' ? LOG.cardio.length : LOG.weights.filter(function(w){ return w.part===p; }).length;
+        return '<button class="wchip' + (p===cat?' on':'') + '" onclick="pickCat(\'' + esc(p) + '\')">' + esc(p) + (did ? ' <b class="ok">✓</b>' : '') + '</button>';
+      }).join('') + '</div>';
+  if(!cat){
+    h += '<p class="muted" style="margin:14px 0 4px">위에서 부위를 골라 주세요.</p>';
+  } else if(cat === '유산소'){
+    h += '<div class="eqgrid2">' + CARDIO_TYPES.map(function(c, i){
         var cnt = LOG.cardio.filter(function(x){ return x.type===c.type; }).length;
-        return '<button class="pickbig" onclick="startCardio(' + i + ')">' + ic(c.icon)
-          + '<div class="pn">' + esc(c.type) + '</div>'
-          + '<div class="ps' + (cnt?' did':'') + '">' + (cnt ? cnt + '개 했어요' : esc(c.sub)) + '</div></button>';
-      }).join('')
-    + (hasWeightDay()
-        ? '<button class="pickbig wt" onclick="goStep(\'equip\')">' + ic('dumbbell')
-          + '<div><div class="pn">웨이트</div><div class="ps">' + esc(LOG.workout) + ' 기구</div></div>'
-          + (LOG.weights.length ? '<span class="pcnt">' + LOG.weights.length + '개 했어요</span>' : '') + '</button>'
-        : '')
-    + '</div>'
-    + '<button class="finnext' + (n ? ' ready' : '') + '" onclick="goFin()">다 끝났어요 → 오운완 등록</button>';
+        var t = gearThumbOf(cardioGearName(c));
+        return '<button class="eqcard' + (cnt?' did':'') + '" onclick="startCardio(' + i + ')">'
+          + (t ? '<img class="eqimg" src="' + esc(t) + '" alt="">' : '<span class="eqimg noimg cardio">' + ic(c.icon) + '</span>')
+          + '<span class="eqname">' + esc(c.type) + (cnt ? ' <b class="ok">✓' + (cnt>1?cnt:'') + '</b>' : '') + '</span></button>';
+      }).join('') + '</div>';
+  } else {
+    var rows = [];
+    GEAR.forEach(function(e, i){
+      if(e.part !== cat) return;
+      var done = LOG.weights.some(function(w){ return w.equip === e.name; });
+      rows.push('<button class="eqcard' + (done?' done':'') + '" onclick="pickEquipInline(' + i + ')">'
+        + (e.thumb ? '<img class="eqimg" src="' + esc(e.thumb) + '" alt="">' : '<span class="eqimg noimg">' + ic('dumbbell') + '</span>')
+        + '<span class="eqname">' + esc(e.name) + (done ? ' <b class="ok">✓</b>' : '') + '</span></button>');
+    });
+    h += '<button class="loadbtn" onclick="openWeightRecent()">' + ic('history') + ' ' + esc(cat) + ' 최근 기록 불러오기</button>'
+      + (rows.length ? '<div class="eqgrid2">' + rows.join('') + '</div>'
+          : '<p class="muted">' + esc(cat) + ' 기구가 없어요. <a onclick="switchTab(\'equip\')">기구 목록</a>에서 등록해 주세요.</p>');
+  }
+  h += '<button class="finnext' + (n ? ' ready' : '') + '" onclick="goFin()">다 끝났어요 → 오운완 등록</button>';
   return h;
 }
+function pickCat(p){ LOG.cat = p; saveLog(); renderLogView(); }
 
 /* ---- ③ 유산소 입력 ---- */
 function startCardio(i){ CARDIO_EDIT = { type:CARDIO_TYPES[i].type, idx:-1, vals:{} }; goStep('cardio'); }
@@ -572,10 +599,11 @@ function saveCardio(){
   var c = cardioDef(CARDIO_EDIT.type), r = readCardio();
   if(c.fields.every(function(f){ return String(r[f[0]]).trim()===''; })){ toast(c.type + ' 값을 입력해 주세요.'); return; }
   if(CARDIO_EDIT.idx >= 0) LOG.cardio[CARDIO_EDIT.idx] = r; else LOG.cardio.push(r);
+  LOG.cat = '유산소';
   saveLog(); toast(c.type + ' 저장 ✓');
-  CARDIO_EDIT = null; goStep('menu');
+  CARDIO_EDIT = null; goStep('pick');
 }
-function cancelCardio(){ CARDIO_EDIT = null; goStep('menu'); }
+function cancelCardio(){ CARDIO_EDIT = null; goStep('pick'); }
 function openCardioRecent(){
   CARDIO_EDIT.vals = readCardio();   // 입력 중이던 값 지키기
   var type = CARDIO_EDIT.type;
@@ -616,25 +644,6 @@ function closeSheet(){ var sh=$('stepSheet'); if(sh){ sh.classList.remove('on');
 /* ---- ④ 웨이트 기구 고르기 ---- */
 function gearByName(name){ for(var k=0;k<GEAR.length;k++){ if(GEAR[k].name === name) return GEAR[k]; } return null; }
 function moveOf(eq, name){ var m = null; ((eq && eq.moves) || []).forEach(function(x){ if(!m && x.name === name) m = x; }); return m; }
-function equipStepHtml(){
-  if(PARTS.indexOf(EQ_PART_SEL) < 0) EQ_PART_SEL = PARTS.indexOf(LOG.workout) >= 0 ? LOG.workout : (PARTS[0]||'');
-  var rows = [];
-  GEAR.forEach(function(e, i){
-    if(e.part !== EQ_PART_SEL) return;
-    var done = LOG.weights.some(function(w){ return w.equip === e.name; });
-    rows.push('<button class="eqcard' + (done?' done':'') + '" onclick="pickEquipInline(' + i + ')">'
-      + (e.thumb ? '<img class="eqimg" src="' + esc(e.thumb) + '" alt="">' : '<span class="eqimg noimg">' + ic('dumbbell') + '</span>')
-      + '<span class="eqname">' + esc(e.name) + (done ? ' <b class="ok">✓</b>' : '') + '</span></button>');
-  });
-  return '<div class="steph">어떤 기구 할래요?</div>'
-    + '<button class="loadbtn" onclick="openWeightRecent()">' + ic('history') + ' 최근 기록 불러오기</button>'
-    + '<div class="wchips sm" style="margin-bottom:10px">' + PARTS.map(function(p){
-        return '<button class="wchip' + (p===EQ_PART_SEL?' on':'') + '" onclick="EQ_PART_SEL=\'' + esc(p) + '\';renderLogView()">' + esc(p) + '</button>';
-      }).join('') + '</div>'
-    + (rows.length ? '<div class="eqgrid2">' + rows.join('') + '</div>'
-        : '<p class="muted">' + esc(EQ_PART_SEL) + ' 기구가 없어요. <a onclick="switchTab(\'equip\')">기구 목록</a>에서 등록해 주세요.</p>')
-    + stepFoot('goStep(\'menu\')', '뒤로');
-}
 function pickEquipInline(i){
   var e = GEAR[i]; if(!e) return;
   var moves = e.moves || [];
@@ -653,7 +662,7 @@ function moveStepHtml(){
           + (m.link ? '<span class="mvtag">▶ 영상</span>' : '') + '</button>';
       }).join('')
     + '<button class="softbtn" style="margin-top:6px" onclick="startDraft(MOVE_EQUIP, null)">동작 없이 기록</button>'
-    + stepFoot('MOVE_EQUIP=null;goStep(\'equip\')', '뒤로');
+    + stepFoot('MOVE_EQUIP=null;goStep(\'pick\')', '뒤로');
 }
 function pickMoveInline(i){ if(MOVE_EQUIP) startDraft(MOVE_EQUIP, (MOVE_EQUIP.moves||[])[i] || null); }
 function startDraft(equip, move, sets){
@@ -664,28 +673,55 @@ function startDraft(equip, move, sets){
 }
 /* 웨이트 최근 기록 팝업 — 오늘 부위 기구만, 누르면 그때 세트로 채움 */
 function openWeightRecent(){
-  var part = LOG.workout;
+  //  1단계: 이 부위를 한 최근 날짜 5일 → 2단계: 그날 한 기구 목록 → 누르면 그 세트로 채움
+  var part = LOG.cat;
+  if(PARTS.indexOf(part) < 0) return;
   openSheet(esc(part) + ' 최근 기록', '<p class="muted">불러오는 중…</p>');
-  call('recentByPart', part, LOG.date).then(function(r){
-    RECENT_LIST = (r && r.found) ? r.list : [];
-    var body = $('sheetBody'); if(!body) return;
-    if(!RECENT_LIST.length){ body.innerHTML = '<p class="muted">아직 ' + esc(part) + ' 기록이 없어요.</p>'; return; }
-    body.innerHTML = '<p class="muted" style="margin:0 0 10px">기구를 누르면 그때 세트·무게·횟수로 채워져요</p>'
-      + RECENT_LIST.map(function(x, i){
-          var dup = RECENT_LIST.some(function(o, j){ return j !== i && o.equip === x.equip; });
-          var done = LOG.weights.some(function(w){ return w.equip === x.equip && (w.move||'') === (x.move||''); });
-          return '<button class="rrow' + (i===0?' first':'') + (done?' done':'') + '" onclick="pickRecentWeight(' + i + ')">'
-            + gearThumbHtml(x.equip, 'rrthumb')
-            + '<div class="rrtext"><div class="rrname">' + esc(x.equip) + (dup && x.move ? ' <small>' + esc(x.move) + '</small>' : '') + (done ? ' <b class="ok">✓</b>' : '') + '</div>'
-            + '<div class="rrsub">' + esc(mdSlash(x.date)) + ' · ' + x.sets.length + '세트' + (x.top ? ' · 최고 ' + esc(x.top) + 'kg' : '') + '</div></div>'
-            + '<span class="rrgo">불러오기</span></button>';
-        }).join('');
-    icons();
+  // 한 번 불러온 날짜는 기억 (뒤로 갔다 와도 그대로, 같은 날짜·부위일 때)
+  var key = LOG.date + '|' + part;
+  if(RECENT_DAYS.key === key && RECENT_DAYS.days){ renderRecentDays(); return; }
+  call('recentDaysByPart', part, LOG.date, 5).then(function(r){
+    RECENT_DAYS = { key:key, days:(r && r.found) ? r.days : [] };
+    renderRecentDays();
   }).catch(function(e){ var b=$('sheetBody'); if(b) b.innerHTML = '<p class="muted">불러오지 못했어요: ' + esc(e&&e.message||e) + '</p>'; });
 }
-function pickRecentWeight(i){
-  var x = RECENT_LIST[i]; if(!x) return;
-  var eq = gearByName(x.equip) || { id:'', name:x.equip, part:LOG.workout, moves:[] };
+var RECENT_DAYS = { key:'', days:null };
+var WEEKDAY = ['일','월','화','수','목','금','토'];
+function dayLabel(ymdStr){
+  var d = new Date(String(ymdStr).slice(0,10) + 'T00:00:00');
+  return mdSlash(ymdStr) + (isNaN(d) ? '' : ' (' + WEEKDAY[d.getDay()] + ')');
+}
+function renderRecentDays(){
+  var body = $('sheetBody'); if(!body) return;
+  var days = RECENT_DAYS.days || [];
+  if(!days.length){ body.innerHTML = '<p class="muted">아직 ' + esc(LOG.cat) + ' 기록이 없어요.</p>'; return; }
+  body.innerHTML = '<p class="muted" style="margin:0 0 10px">날짜를 누르면 그날 한 기구가 나와요</p>'
+    + days.map(function(d, i){
+        var names = d.items.map(function(x){ return x.equip; }).filter(function(n, j, a){ return a.indexOf(n) === j; });
+        return '<button class="rrow' + (i===0?' first':'') + '" onclick="renderRecentDay(' + i + ')">'
+          + '<div class="rrtext"><div class="rrname">' + esc(dayLabel(d.date)) + (i===0 ? ' <span class="lasttag">가장 최근</span>' : '') + '</div>'
+          + '<div class="rrsub">' + esc(names.join(' · ')) + '</div></div>'
+          + '<span class="rrgo">' + d.items.length + '개 ›</span></button>';
+      }).join('');
+}
+function renderRecentDay(di){
+  var body = $('sheetBody'), d = (RECENT_DAYS.days || [])[di]; if(!body || !d) return;
+  body.innerHTML = '<button class="linkback" style="padding:0 0 10px" onclick="renderRecentDays()">‹ 날짜 다시 고르기</button>'
+    + '<p class="muted" style="margin:0 0 10px"><b style="color:var(--text)">' + esc(dayLabel(d.date)) + '</b> · 기구를 누르면 그때 세트·무게·횟수로 채워져요</p>'
+    + d.items.map(function(x, i){
+        var dup = d.items.some(function(o, j){ return j !== i && o.equip === x.equip; });
+        var done = LOG.weights.some(function(w){ return w.equip === x.equip && (w.move||'') === (x.move||''); });
+        return '<button class="rrow' + (done?' done':'') + '" onclick="pickRecentWeight(' + di + ',' + i + ')">'
+          + gearThumbHtml(x.equip, 'rrthumb')
+          + '<div class="rrtext"><div class="rrname">' + esc(x.equip) + (dup && x.move ? ' <small>' + esc(x.move) + '</small>' : '') + (done ? ' <b class="ok">✓</b>' : '') + '</div>'
+          + '<div class="rrsub">' + x.sets.length + '세트' + (x.top ? ' · 최고 ' + esc(x.top) + 'kg' : '') + '</div></div>'
+          + '<span class="rrgo">불러오기</span></button>';
+      }).join('');
+  icons();
+}
+function pickRecentWeight(di, i){
+  var d = (RECENT_DAYS.days || [])[di], x = d && d.items[i]; if(!x) return;
+  var eq = gearByName(x.equip) || { id:'', name:x.equip, part:LOG.cat, moves:[] };
   var mv = moveOf(eq, x.move) || (x.move ? { name:x.move, link:'' } : null);
   closeSheet();
   startDraft(eq, mv, x.sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; }));
@@ -706,7 +742,7 @@ function setsStepHtml(){
   return '<div class="formhead2">'
     +   gearThumbHtml(DRAFT.equipName, 'dhthumb')
     +   '<div class="fhname"><b>' + esc(DRAFT.equipName) + '</b>' + (DRAFT.moveName ? '<span class="chip">' + esc(DRAFT.moveName) + '</span>' : '') + '</div>'
-    +   (editing ? '<span class="chip">고치는 중</span>' : '<button class="linkback" onclick="DRAFT=null;goStep(\'equip\')">바꾸기</button>')
+    +   (editing ? '<span class="chip">고치는 중</span>' : '<button class="linkback" onclick="DRAFT=null;goStep(\'pick\')">바꾸기</button>')
     + '</div>'
     + '<div class="fhbtns">'
     +   '<button class="howto" onclick="openHowto()">▶ 운동법 보기</button>'
@@ -717,7 +753,7 @@ function setsStepHtml(){
     + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
     + stepFoot('cancelDraft()', '취소', 'confirmWeight()', '저장하고 다음');
 }
-function cancelDraft(){ var wasEdit = DRAFT && DRAFT.editIdx != null; DRAFT = null; goStep(wasEdit ? 'menu' : 'equip'); }
+function cancelDraft(){ DRAFT = null; goStep('pick'); }
 /* [최근 기록] 버튼 — 이 기구·동작의 최근 기록 펼치기/닫기 */
 function toggleRecent(){
   if(!DRAFT) return;
@@ -779,8 +815,9 @@ function confirmWeight(){
   var item = { equip:DRAFT.equipName, move:DRAFT.moveName, part:DRAFT.part, sets:sets.slice() };
   var editing = DRAFT.editIdx != null;
   if(editing) LOG.weights[DRAFT.editIdx] = item; else LOG.weights.push(item);
+  if(PARTS.indexOf(item.part) >= 0) LOG.cat = item.part;   // 다음 화면은 같은 부위 기구부터
   saveLog(); toast(DRAFT.equipName + ' 저장 ✓');
-  DRAFT = null; goStep(editing ? 'menu' : 'equip');
+  DRAFT = null; goStep('pick');
 }
 /* 운동법 보기 — 유튜브 링크 새 탭 (없으면 안내) */
 function openHowto(){
@@ -798,7 +835,7 @@ function finStepHtml(){
     + '<div class="stepsub">사진은 선택이에요</div>'
     + finishInner()
     + '<div class="finsum"><b>오늘 한 운동</b>' + (lines.length ? lines.join('') : '<div class="muted">아직 기록한 운동이 없어요.</div>') + '</div>'
-    + stepFoot('goStep(\'menu\')', '뒤로', 'submitWorkout(event)', '운동 완료!');
+    + stepFoot('goStep(\'pick\')', '뒤로', 'submitWorkout(event)', '운동 완료!');
 }
 function discardLog(){
   if(!confirm('오늘 입력한 기록을 취소할까요? (저장 전이라 사라져요)')) return;
@@ -812,7 +849,7 @@ function finishInner(){
       +   '<img src="' + esc(LOG.fin.data) + '" class="finimg">'
       +   '<div class="finoverlay">'
       +     '<div class="fintext" id="finPreview">' + esc(LOG.finText || '') + '</div>'
-      +     '<div class="finmeta">' + esc(LOG.date) + (LOG.workout ? ' · ' + esc(LOG.workout) : '') + ' · ' + esc(ME.name) + '</div>'
+      +     '<div class="finmeta">' + esc(LOG.date) + (dayWorkout() ? ' · ' + esc(dayWorkout()) : '') + ' · ' + esc(ME.name) + '</div>'
       +   '</div>'
       + '</div>'
       + '<input id="finInput" class="fininput" maxlength="40" placeholder="오늘의 한마디 (예: 가슴 조졌다 💪)" value="' + esc(LOG.finText || '') + '" oninput="LOG.finText=this.value;saveLog();document.getElementById(\'finPreview\').textContent=this.value">'
@@ -887,6 +924,7 @@ function submitWorkout(ev){
   if(!LOG){ return; }
   normalizeLog();
   if(!LOG.cardio.length && !LOG.weights.length && !LOG.fin){ toast('기록한 내용이 없어요.'); return; }
+  LOG.workout = dayWorkout();   // 세션 대표 운동 (세트 가장 많은 부위, 웨이트 없으면 유산소)
   // 사진 없으면 인증 경고
   if(!LOG.fin){
     if(!confirm('오운완 사진이 없으면 인증이 안 남아요. 그래도 완료할까요?')) return;

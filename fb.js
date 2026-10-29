@@ -4,8 +4,8 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF5.0';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
-  const WORKOUTS = ['가슴', '등', '어깨', '하체', '유산소'];   // '유산소' = 유산소만 하는 날
+  const VERSION = 'WF5.2';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const WORKOUTS = ['가슴', '등', '어깨', '하체', '팔', '유산소'];   // 세션 대표 운동 ('유산소' = 웨이트 없이 유산소만)
   const CARDIO_TYPES = ['런닝머신', '천국의 계단', '사이클'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -524,7 +524,33 @@
     return list.length ? { found: true, list } : { found: false };
   }
 
-  /* ---------- 웨이트 최근 기록 팝업: 이 부위에서 했던 기구·동작별 가장 최근 기록 ---------- */
+  /* ---------- 웨이트 최근 기록 팝업: 이 부위를 한 최근 날짜 5일 + 그날 기구·세트 ---------- */
+  async function recentDaysByPart(part, beforeDate, limit) {
+    const u = requireUser();
+    if (!MYW_CACHE) MYW_CACHE = await col('weights').where('uid', '==', u.uid).get().then(docsOf);
+    const p = tidy(part, 20), before = tidy(beforeDate, 10) || '9999-12-31';
+    if (!p) return { found: false };
+    const day = (w) => String(w.date).slice(0, 10);
+    const ms = (t) => (t && t.toMillis ? t.toMillis() : (t && t.seconds ? t.seconds * 1000 : Number(t) || 0));
+    const mine = MYW_CACHE.filter((w) => w.part === p && day(w) < before);
+    const dates = Array.from(new Set(mine.map(day))).sort().reverse().slice(0, Number(limit) || 5);
+    const days = dates.map((d) => {
+      const rows = mine.filter((w) => day(w) === d)
+        .sort((a, b) => (ms(a.createdAt) - ms(b.createdAt)) || ((a.setNo || 0) - (b.setNo || 0)));
+      const items = [], idx = {};
+      rows.forEach((w) => {
+        const k = (w.equip || '') + '|' + (w.move || '');
+        if (!(k in idx)) { idx[k] = items.length; items.push({ equip: w.equip || '', move: w.move || '', sets: [], top: 0 }); }
+        const it = items[idx[k]];
+        it.sets.push({ weight: w.weight == null ? '' : w.weight, reps: w.reps == null ? '' : w.reps });
+        const v = Number(w.weight) || 0; if (v > it.top) it.top = v;
+      });
+      return { date: d, items };
+    });
+    return days.length ? { found: true, days } : { found: false };
+  }
+
+  /* (예전) 이 부위에서 했던 기구·동작별 가장 최근 기록 */
   async function recentByPart(part, beforeDate) {
     const u = requireUser();
     if (!MYW_CACHE) MYW_CACHE = await col('weights').where('uid', '==', u.uid).get().then(docsOf);
@@ -680,7 +706,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor, lastRunFor, routineFor, recentByPart };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor, lastRunFor, routineFor, recentByPart, recentDaysByPart };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
