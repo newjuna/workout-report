@@ -9,11 +9,9 @@ var CUR_TAB = 'home';
 var GEAR = [];
 var DRAFT = null;       // 지금 입력 중인 기구 1개
 var PHOTOBUF = {};      // 기구/동작 사진 임시버퍼 (eq, mv) — 기록하기 오운완은 LOG.fin 사용
-var PICK_STEP = '';
-var PICK_EQUIP = null;
-var OPEN = '';          // 펼친 폼: 'run' | 'weight' | ''
+
 /* 기록하기 전체를 담는 로컬 임시 상태 (localStorage에 저장 → 새로고침·이탈 복원) */
-var LOG = null;         // { date, workout, running:{...}|null, weights:[...], fin:{data,thumbData}|null, finText }
+var LOG = null;         // { date, workout, cardio:[{type,min,km,...}], weights:[...], fin:{data,thumbData}|null, finText }
 var LOG_KEY = 'workoutDraft';
 
 /* ---------- 공통 도구 ---------- */
@@ -357,7 +355,7 @@ function renderLog(){
   ensureEquip(function(){
     if(!LOG) LOG = loadSavedLog();          // 이전에 쓰던 거 복원
     if(!LOG) return renderLogStart();        // 새로 시작
-    renderLogView();
+    normalizeLog(); renderLogView();
   });
 }
 var START_WORKOUT = '';
@@ -366,10 +364,11 @@ function renderLogStart(){
     '<div class="card">'
     + '<h2>오늘 운동 시작</h2>'
     + '<div class="field"><label>날짜</label><input type="date" id="logDate" value="' + todayStr() + '"></div>'
-    + '<div class="field"><label>오늘의 운동</label><div class="wchips" id="wchips">'
-    +   WORKOUTS.map(function(w){ return '<button class="wchip' + (START_WORKOUT===w?' on':'') + '" onclick="pickWorkout(\'' + esc(w) + '\')">' + esc(w) + '</button>'; }).join('')
+    + '<div class="field"><label>오늘 웨이트 부위</label><div class="wchips" id="wchips">'
+    +   WORKOUTS.map(function(w){ return '<button class="wchip' + (START_WORKOUT===w?' on':'') + '" data-w="' + esc(w) + '" onclick="pickWorkout(\'' + esc(w) + '\')">' + esc(workoutLabel(w)) + '</button>'; }).join('')
     + '</div></div>'
-    + '<button class="button accent" style="width:100%;margin-top:6px" onclick="doStartSession()">시작하기</button>'
+    + '<p class="muted" style="margin:-4px 0 10px;font-size:12px">웨이트 기구와 최근 기록을 이 부위 것만 보여줘요. 유산소만 하는 날은 <b>유산소만</b>을 골라요.</p>'
+    + '<button class="button accent" style="width:100%;margin-top:6px" onclick="doStartSession()">운동 시작하기</button>'
     + '</div>'
     + '<div class="card hintcard" id="hintCard"><div class="muted">지난 운동 확인 중…</div></div>';
   call('workoutHint').then(function(h){
@@ -386,64 +385,425 @@ function hintText(h){
   return hl(h.daysAgo + '일 전') + '에 ' + last + ' 운동을 했어요. 오늘 다시 가볍게 시작해봐요! 💪';
 }
 function pickWorkout(w){ START_WORKOUT = (START_WORKOUT===w?'':w);
-  Array.prototype.forEach.call(document.querySelectorAll('#wchips .wchip'), function(b){ b.classList.toggle('on', b.textContent===START_WORKOUT); });
+  Array.prototype.forEach.call(document.querySelectorAll('#wchips .wchip'), function(b){ b.classList.toggle('on', b.getAttribute('data-w')===START_WORKOUT); });
 }
 function doStartSession(){
   var date = $('logDate').value;
   if(!date){ toast('날짜를 선택해 주세요.'); return; }
   if(!START_WORKOUT){ toast('오늘의 운동을 선택해 주세요.'); return; }
-  LOG = { date:date, workout:START_WORKOUT, running:null, weights:[], fin:null, finText:'' };
-  START_WORKOUT=''; DRAFT=null; OPEN=''; RUN_RECENT={ show:false, data:null }; ROUTINE={ key:'', data:null }; saveLog(); renderLogView();
+  LOG = { date:date, workout:START_WORKOUT, cardio:[], weights:[], fin:null, finText:'' };
+  START_WORKOUT=''; resetSteps(); saveLog(); goStep('menu');
 }
 
-function renderLogView(){ $('log').innerHTML = logBodyHtml(); wirePhotoButtons(); wireFinInputs(); icons(); }
+/* ====================================================================
+ * 기록하기 — 단계별 화면 (WF5.0)
+ *  STEP: 'menu'(뭐 할래요) → 'cardio'(유산소 입력) / 'equip'(기구) → 'move'(동작) → 'sets'(세트)
+ *        → 'fin'(오운완) → 운동 완료
+ *  상단 탭: 끝낸 운동이 쌓임. 누르면 고치기/지우기
+ * ==================================================================== */
+var CARDIO_TYPES = [
+  { type:'런닝머신',   icon:'footprints',  kw:'런닝',   sub:'시간·거리·경사',
+    fields:[['min','시간(분)','20'],['km','거리(km)','2.5'],['incline','경사','3'],['speed','속도(km/h)','7'],['kcal','칼로리','150']] },
+  { type:'천국의 계단', icon:'trending-up', kw:'계단',   sub:'시간·층수·레벨',
+    fields:[['min','시간(분)','15'],['floors','층수','60'],['level','레벨','5'],['kcal','칼로리','150']] },
+  { type:'사이클',     icon:'bike',        kw:'사이클', sub:'시간·거리·레벨',
+    fields:[['min','시간(분)','20'],['km','거리(km)','6'],['level','레벨','5'],['kcal','칼로리','120']] }
+];
+var CARDIO_KEYS = ['min','km','incline','speed','floors','level','kcal'];
+function cardioDef(t){ for(var i=0;i<CARDIO_TYPES.length;i++){ if(CARDIO_TYPES[i].type===t) return CARDIO_TYPES[i]; } return CARDIO_TYPES[0]; }
 
-function logBodyHtml(){
-  var h = '';
-  h += '<div class="card">'
+var STEP = 'menu';
+var CARDIO_EDIT = null;   // { type, idx(-1=새로), vals }
+var TAB_SEL = null;       // { kind:'cardio'|'weight', idx }
+var EQ_PART_SEL = '';     // 기구 고르기 화면의 부위 칩
+var MOVE_EQUIP = null;    // 동작 고르기 중인 기구
+var RECENT_LIST = [];     // 최근 기록 팝업 목록
+
+/* 예전 형식(LOG.running 1개) → 새 형식(LOG.cardio 여러 개) */
+function normalizeLog(){
+  if(!LOG) return;
+  if(!Array.isArray(LOG.cardio)){
+    LOG.cardio = [];
+    if(LOG.running){ var r = LOG.running; r.type = r.type || '런닝머신'; LOG.cardio.push(r); }
+  }
+  delete LOG.running; delete LOG.skipRoutine;
+  if(!Array.isArray(LOG.weights)) LOG.weights = [];
+}
+function hasWeightDay(){ return !!(LOG && LOG.workout && LOG.workout !== '유산소'); }
+function workoutLabel(w){ return w === '유산소' ? '유산소만' : w; }
+function resetSteps(){ STEP='menu'; CARDIO_EDIT=null; TAB_SEL=null; MOVE_EQUIP=null; DRAFT=null; EQ_PART_SEL=''; }
+
+function goStep(s){ STEP = s; TAB_SEL = null; renderLogView(); try{ window.scrollTo(0,0); }catch(e){} }
+function renderLogView(){
+  normalizeLog();
+  if(STEP==='cardio' && !CARDIO_EDIT) STEP='menu';
+  if(STEP==='sets' && !DRAFT) STEP='equip';
+  if(STEP==='move' && !MOVE_EQUIP) STEP='equip';
+  if((STEP==='equip' || STEP==='move') && !hasWeightDay()) STEP='menu';
+  $('log').innerHTML = logTopHtml() + '<div class="card stepcard">' + stepBodyHtml() + '</div>';
+  wirePhotoButtons(); wireFinInputs(); icons();
+}
+function stepBodyHtml(){
+  if(STEP==='cardio') return cardioHtml();
+  if(STEP==='equip')  return equipStepHtml();
+  if(STEP==='move')   return moveStepHtml();
+  if(STEP==='sets')   return setsStepHtml();
+  if(STEP==='fin')    return finStepHtml();
+  return menuHtml();
+}
+function stepFoot(aFn, aLabel, bFn, bLabel){
+  return '<div class="stepfoot">'
+    + '<button class="button ghost" onclick="' + aFn + '">' + aLabel + '</button>'
+    + (bFn ? '<button class="button accent" onclick="' + bFn + '">' + bLabel + '</button>' : '')
+    + '</div>';
+}
+
+/* ---- 상단: 날짜 · 부위 · 진행 탭 ---- */
+function logTopHtml(){
+  var tabs = [];
+  var editC = (STEP==='cardio' && CARDIO_EDIT && CARDIO_EDIT.idx >= 0) ? CARDIO_EDIT.idx : -1;
+  var editW = (STEP==='sets' && DRAFT && DRAFT.editIdx != null) ? DRAFT.editIdx : -1;
+  LOG.cardio.forEach(function(c, i){
+    var sel = TAB_SEL && TAB_SEL.kind==='cardio' && TAB_SEL.idx===i;
+    tabs.push(i===editC ? '<span class="steptab now">' + esc(c.type) + '</span>'
+      : '<button class="steptab done' + (sel?' sel':'') + '" onclick="selTab(\'cardio\',' + i + ')">' + esc(c.type) + ' ✓</button>');
+  });
+  LOG.weights.forEach(function(w, i){
+    var sel = TAB_SEL && TAB_SEL.kind==='weight' && TAB_SEL.idx===i;
+    tabs.push(i===editW ? '<span class="steptab now">' + esc(w.equip) + '</span>'
+      : '<button class="steptab done' + (sel?' sel':'') + '" onclick="selTab(\'weight\',' + i + ')">' + esc(w.equip) + ' ✓</button>');
+  });
+  if(STEP==='cardio' && editC < 0) tabs.push('<span class="steptab now">' + esc(CARDIO_EDIT.type) + '</span>');
+  if(STEP==='equip' || STEP==='move') tabs.push('<span class="steptab now">웨이트</span>');
+  if(STEP==='sets' && editW < 0) tabs.push('<span class="steptab now">' + esc(DRAFT.equipName) + '</span>');
+  tabs.push('<button class="steptab fin' + (STEP==='fin'?' now':'') + '" onclick="goFin()">오운완</button>');
+
+  var bar = '';
+  if(TAB_SEL){
+    var label = '', sum = '';
+    if(TAB_SEL.kind==='cardio' && LOG.cardio[TAB_SEL.idx]){ var c = LOG.cardio[TAB_SEL.idx]; label = c.type; sum = runText(c); }
+    if(TAB_SEL.kind==='weight' && LOG.weights[TAB_SEL.idx]){ var w = LOG.weights[TAB_SEL.idx]; label = w.equip; sum = weightSum(w); }
+    if(label) bar = '<div class="tabedit"><b>' + esc(label) + '</b><span class="muted">' + esc(sum) + '</span>'
+      + '<button class="te-edit" onclick="editTab()">고치기</button>'
+      + '<button class="te-del" onclick="delTab()">지우기</button></div>';
+  }
+  return '<div class="card steptop">'
     + '<div class="row" style="justify-content:space-between;align-items:center">'
-    +   '<div><b>' + esc(LOG.date) + '</b>' + (LOG.workout ? ' <span class="chip">' + esc(LOG.workout) + '</span>' : '') + '</div>'
+    +   '<div><b>' + esc(mdSlash(LOG.date)) + '</b>' + (LOG.workout ? ' <span class="chip">' + esc(workoutLabel(LOG.workout)) + '</span>' : '') + '</div>'
     +   '<button class="linkbtn-del" onclick="discardLog()">기록 취소</button>'
-    + '</div></div>';
-
-  // 런닝 (저장버튼 없음 · 입력하면 즉시 LOG에)
-  h += '<div class="card">'
-    + '<h2>' + ic('footprints') + ' 런닝머신</h2>'
-    + (LOG.running ? '<div class="savedline">✓ ' + esc(runText(LOG.running)) + '<button class="xmini" onclick="LOG.running=null;saveLog();renderLogView()">✕</button></div>' : '')
-    + (OPEN==='run' ? runFormHtml() : (LOG.running ? '' : '<button class="softbtn" onclick="openForm(\'run\')">＋ 런닝 기록 추가</button>'))
+    + '</div>'
+    + '<div class="steptabs">' + tabs.join('') + '</div>'
+    + bar
     + '</div>';
+}
+function weightSum(w){
+  var sets = w.sets || [], top = 0;
+  sets.forEach(function(s){ var v = Number(s.weight)||0; if(v > top) top = v; });
+  return sets.length + '세트' + (top ? ' · 최고 ' + top + 'kg' : '');
+}
+function selTab(kind, idx){
+  TAB_SEL = (TAB_SEL && TAB_SEL.kind===kind && TAB_SEL.idx===idx) ? null : { kind:kind, idx:idx };
+  renderLogView();
+}
+function editTab(){
+  if(!TAB_SEL) return;
+  if(TAB_SEL.kind==='cardio'){
+    var c = LOG.cardio[TAB_SEL.idx]; if(!c) return;
+    CARDIO_EDIT = { type:c.type, idx:TAB_SEL.idx, vals:JSON.parse(JSON.stringify(c)) };
+    goStep('cardio'); return;
+  }
+  var w = LOG.weights[TAB_SEL.idx]; if(!w) return;
+  var eq = gearByName(w.equip), mv = moveOf(eq, w.move);
+  DRAFT = { equipId: eq ? eq.id : '', equipName:w.equip, part:w.part, moveName:w.move||'', moveLink: mv ? (mv.link||'') : '',
+            sets:(w.sets||[]).map(function(s){ return { weight:String(s.weight), reps:String(s.reps) }; }), last:null, editIdx:TAB_SEL.idx };
+  goStep('sets');
+}
+function delTab(){
+  if(!TAB_SEL) return;
+  var list = TAB_SEL.kind==='cardio' ? LOG.cardio : LOG.weights;
+  var it = list[TAB_SEL.idx]; if(!it) return;
+  if(!confirm((TAB_SEL.kind==='cardio' ? it.type : it.equip) + ' 기록을 지울까요?')) return;
+  list.splice(TAB_SEL.idx, 1); TAB_SEL = null; saveLog(); renderLogView();
+}
+function goFin(){ CARDIO_EDIT=null; DRAFT=null; MOVE_EQUIP=null; goStep('fin'); }
 
-  // 웨이트 (기구별로 LOG.weights에 쌓임)
-  h += '<div class="card">'
-    + '<h2>' + ic('dumbbell') + ' 웨이트</h2>'
-    + LOG.weights.map(function(w, wi){
-        var sets = (w.sets||[]).map(function(x){ return x.weight+'kg×'+x.reps; }).join(', ');
-        var mv = w.move ? ' · ' + esc(w.move) : '';
-        return '<div class="savedline">✓ <b>' + esc(w.equip) + '</b>' + mv + ' <span class="muted">' + esc(sets) + '</span>'
-          + '<button class="xmini" onclick="delWeightItem(' + wi + ')">✕</button></div>';
+/* ---- ② 뭐 할래요? ---- */
+function menuHtml(){
+  var n = LOG.cardio.length + LOG.weights.length;
+  var h = '<div class="steph">' + (n ? '다음은 뭐 할래요?' : '뭐 할래요?') + '</div>'
+    + '<div class="stepsub">' + (n ? n + '개 끝냈어요 💪' : '끝낸 운동은 위에 쌓여요') + '</div>'
+    + '<div class="pickgrid">'
+    + CARDIO_TYPES.map(function(c, i){
+        var cnt = LOG.cardio.filter(function(x){ return x.type===c.type; }).length;
+        return '<button class="pickbig" onclick="startCardio(' + i + ')">' + ic(c.icon)
+          + '<div class="pn">' + esc(c.type) + '</div>'
+          + '<div class="ps' + (cnt?' did':'') + '">' + (cnt ? cnt + '개 했어요' : esc(c.sub)) + '</div></button>';
       }).join('')
-    + (OPEN==='weight' ? weightFormHtml() : '<div id="routineBox">' + routineHtml() + '</div><button class="softbtn" onclick="openWeight()">＋ 기구 추가</button>')
-    + (GEAR.length ? '' : '<p class="muted" style="margin-top:8px">먼저 <a onclick="switchTab(\'equip\')">기구 목록</a>에서 기구를 등록하세요.</p>')
-    + '</div>';
-
-  // 오운완 사진 (선택)
-  h += '<div class="card" id="finCard">'
-    + '<h2>' + ic('camera') + ' 오운완 사진</h2>'
-    + finishInner()
-    + '</div>';
-
-  // 최종 완료
-  h += '<div class="card">'
-    + '<button class="button accent" style="width:100%;font-size:17px;padding:16px" onclick="submitWorkout(event)">' + ic('check-circle') + ' 운동 완료!</button>'
-    + '<p class="muted" style="text-align:center;margin-top:8px">완료를 누르면 사진 업로드와 함께 최종 저장돼요.</p>'
-    + '</div>';
+    + (hasWeightDay()
+        ? '<button class="pickbig wt" onclick="goStep(\'equip\')">' + ic('dumbbell')
+          + '<div><div class="pn">웨이트</div><div class="ps">' + esc(LOG.workout) + ' 기구</div></div>'
+          + (LOG.weights.length ? '<span class="pcnt">' + LOG.weights.length + '개 했어요</span>' : '') + '</button>'
+        : '')
+    + '</div>'
+    + '<button class="finnext' + (n ? ' ready' : '') + '" onclick="goFin()">다 끝났어요 → 오운완 등록</button>';
   return h;
+}
+
+/* ---- ③ 유산소 입력 ---- */
+function startCardio(i){ CARDIO_EDIT = { type:CARDIO_TYPES[i].type, idx:-1, vals:{} }; goStep('cardio'); }
+function cardioGearName(c){
+  for(var k=0;k<GEAR.length;k++){ if(String(GEAR[k].name).indexOf(c.kw) >= 0 && GEAR[k].thumb) return GEAR[k].name; }
+  return '';
+}
+function cardioHtml(){
+  var c = cardioDef(CARDIO_EDIT.type), v = CARDIO_EDIT.vals || {};
+  return '<div class="formhead2">' + gearThumbHtml(cardioGearName(c), 'dhthumb', c.icon)
+    +   '<b>' + esc(c.type) + '</b>' + (CARDIO_EDIT.idx >= 0 ? ' <span class="chip">고치는 중</span>' : '') + '</div>'
+    + '<button class="loadbtn" onclick="openCardioRecent()">' + ic('history') + ' 최근 기록 불러오기</button>'
+    + '<div class="grid2 runform">' + c.fields.map(function(f){ return numField('cd_' + f[0], f[1], f[2], v[f[0]]); }).join('') + '</div>'
+    + stepFoot('cancelCardio()', '취소', 'saveCardio()', '저장하고 다음');
+}
+function readCardio(){
+  var c = cardioDef(CARDIO_EDIT.type), r = { type:c.type };
+  c.fields.forEach(function(f){ r[f[0]] = val('cd_' + f[0]); });
+  return r;
+}
+function saveCardio(){
+  var c = cardioDef(CARDIO_EDIT.type), r = readCardio();
+  if(c.fields.every(function(f){ return String(r[f[0]]).trim()===''; })){ toast(c.type + ' 값을 입력해 주세요.'); return; }
+  if(CARDIO_EDIT.idx >= 0) LOG.cardio[CARDIO_EDIT.idx] = r; else LOG.cardio.push(r);
+  saveLog(); toast(c.type + ' 저장 ✓');
+  CARDIO_EDIT = null; goStep('menu');
+}
+function cancelCardio(){ CARDIO_EDIT = null; goStep('menu'); }
+function openCardioRecent(){
+  CARDIO_EDIT.vals = readCardio();   // 입력 중이던 값 지키기
+  var type = CARDIO_EDIT.type;
+  openSheet(esc(type) + ' 최근 기록', '<p class="muted">불러오는 중…</p>');
+  call('lastRunFor', LOG.date, type).then(function(r){
+    RECENT_LIST = (r && r.found) ? r.list : [];
+    var body = $('sheetBody'); if(!body) return;
+    if(!RECENT_LIST.length){ body.innerHTML = '<p class="muted">아직 ' + esc(type) + ' 기록이 없어요.</p>'; return; }
+    body.innerHTML = '<p class="muted" style="margin:0 0 10px">누르면 그 기록으로 채워져요</p>'
+      + RECENT_LIST.map(function(x, i){
+          return '<button class="rrow' + (i===0?' first':'') + '" onclick="fillCardio(' + i + ')">'
+            + '<div class="rrtext"><div class="rrname">' + esc(mdSlash(x.date)) + (i===0 ? ' <span class="lasttag">가장 최근</span>' : '') + '</div>'
+            + '<div class="rrsub">' + esc(runText(x)) + '</div></div><span class="rrgo">불러오기</span></button>';
+        }).join('');
+  }).catch(function(e){ var b=$('sheetBody'); if(b) b.innerHTML = '<p class="muted">불러오지 못했어요: ' + esc(e&&e.message||e) + '</p>'; });
+}
+function fillCardio(i){
+  var x = RECENT_LIST[i]; if(!x || !CARDIO_EDIT) return;
+  var v = { type:CARDIO_EDIT.type };
+  CARDIO_KEYS.forEach(function(k){ v[k] = (x[k]==null ? '' : String(x[k])); });
+  CARDIO_EDIT.vals = v; closeSheet(); renderLogView();
+  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
+}
+
+/* ---- 공용 팝업 (아래에서 올라오는 목록) ---- */
+function openSheet(titleHtml, bodyHtml){
+  var sh = $('stepSheet');
+  if(!sh){ sh=document.createElement('div'); sh.id='stepSheet'; sh.className='modalwrap'; document.body.appendChild(sh); }
+  sh.innerHTML = '<div class="modalbg" onclick="closeSheet()"></div>'
+    + '<div class="modalbox">'
+    +   '<div class="modalhead"><b>' + titleHtml + '</b><button class="xbtn" onclick="closeSheet()">✕</button></div>'
+    +   '<div class="modalbody" id="sheetBody">' + bodyHtml + '</div>'
+    + '</div>';
+  sh.classList.add('on');
+}
+function closeSheet(){ var sh=$('stepSheet'); if(sh){ sh.classList.remove('on'); sh.innerHTML=''; } }
+
+/* ---- ④ 웨이트 기구 고르기 ---- */
+function gearByName(name){ for(var k=0;k<GEAR.length;k++){ if(GEAR[k].name === name) return GEAR[k]; } return null; }
+function moveOf(eq, name){ var m = null; ((eq && eq.moves) || []).forEach(function(x){ if(!m && x.name === name) m = x; }); return m; }
+function equipStepHtml(){
+  if(PARTS.indexOf(EQ_PART_SEL) < 0) EQ_PART_SEL = PARTS.indexOf(LOG.workout) >= 0 ? LOG.workout : (PARTS[0]||'');
+  var rows = [];
+  GEAR.forEach(function(e, i){
+    if(e.part !== EQ_PART_SEL) return;
+    var done = LOG.weights.some(function(w){ return w.equip === e.name; });
+    rows.push('<button class="eqcard' + (done?' done':'') + '" onclick="pickEquipInline(' + i + ')">'
+      + (e.thumb ? '<img class="eqimg" src="' + esc(e.thumb) + '" alt="">' : '<span class="eqimg noimg">' + ic('dumbbell') + '</span>')
+      + '<span class="eqname">' + esc(e.name) + (done ? ' <b class="ok">✓</b>' : '') + '</span></button>');
+  });
+  return '<div class="steph">어떤 기구 할래요?</div>'
+    + '<button class="loadbtn" onclick="openWeightRecent()">' + ic('history') + ' 최근 기록 불러오기</button>'
+    + '<div class="wchips sm" style="margin-bottom:10px">' + PARTS.map(function(p){
+        return '<button class="wchip' + (p===EQ_PART_SEL?' on':'') + '" onclick="EQ_PART_SEL=\'' + esc(p) + '\';renderLogView()">' + esc(p) + '</button>';
+      }).join('') + '</div>'
+    + (rows.length ? '<div class="eqgrid2">' + rows.join('') + '</div>'
+        : '<p class="muted">' + esc(EQ_PART_SEL) + ' 기구가 없어요. <a onclick="switchTab(\'equip\')">기구 목록</a>에서 등록해 주세요.</p>')
+    + stepFoot('goStep(\'menu\')', '뒤로');
+}
+function pickEquipInline(i){
+  var e = GEAR[i]; if(!e) return;
+  var moves = e.moves || [];
+  if(moves.length === 1){ startDraft(e, moves[0]); return; }
+  if(!moves.length){ startDraft(e, null); return; }
+  MOVE_EQUIP = e; goStep('move');
+}
+function moveStepHtml(){
+  var e = MOVE_EQUIP, moves = e.moves || [];
+  return '<div class="formhead2">' + gearThumbHtml(e.name, 'dhthumb') + '<b>' + esc(e.name) + '</b></div>'
+    + '<div class="stepsub">어떤 동작 할래요?</div>'
+    + moves.map(function(m, i){
+        return '<button class="moverow" onclick="pickMoveInline(' + i + ')">'
+          + (m.thumb ? '<img class="rrthumb" src="' + esc(m.thumb) + '" alt="">' : '<span class="rrthumb noimg">' + ic('activity') + '</span>')
+          + '<span class="mvname">' + esc(m.name) + '</span>'
+          + (m.link ? '<span class="mvtag">▶ 영상</span>' : '') + '</button>';
+      }).join('')
+    + '<button class="softbtn" style="margin-top:6px" onclick="startDraft(MOVE_EQUIP, null)">동작 없이 기록</button>'
+    + stepFoot('MOVE_EQUIP=null;goStep(\'equip\')', '뒤로');
+}
+function pickMoveInline(i){ if(MOVE_EQUIP) startDraft(MOVE_EQUIP, (MOVE_EQUIP.moves||[])[i] || null); }
+function startDraft(equip, move, sets){
+  DRAFT = { equipId:equip.id||'', equipName:equip.name, part:equip.part,
+            moveName: move ? move.name : '', moveLink: move ? (move.link||'') : '',
+            sets: sets || [{weight:'',reps:''}], last:null, editIdx:null };
+  MOVE_EQUIP = null; goStep('sets');
+}
+/* 웨이트 최근 기록 팝업 — 오늘 부위 기구만, 누르면 그때 세트로 채움 */
+function openWeightRecent(){
+  var part = LOG.workout;
+  openSheet(esc(part) + ' 최근 기록', '<p class="muted">불러오는 중…</p>');
+  call('recentByPart', part, LOG.date).then(function(r){
+    RECENT_LIST = (r && r.found) ? r.list : [];
+    var body = $('sheetBody'); if(!body) return;
+    if(!RECENT_LIST.length){ body.innerHTML = '<p class="muted">아직 ' + esc(part) + ' 기록이 없어요.</p>'; return; }
+    body.innerHTML = '<p class="muted" style="margin:0 0 10px">기구를 누르면 그때 세트·무게·횟수로 채워져요</p>'
+      + RECENT_LIST.map(function(x, i){
+          var dup = RECENT_LIST.some(function(o, j){ return j !== i && o.equip === x.equip; });
+          var done = LOG.weights.some(function(w){ return w.equip === x.equip && (w.move||'') === (x.move||''); });
+          return '<button class="rrow' + (i===0?' first':'') + (done?' done':'') + '" onclick="pickRecentWeight(' + i + ')">'
+            + gearThumbHtml(x.equip, 'rrthumb')
+            + '<div class="rrtext"><div class="rrname">' + esc(x.equip) + (dup && x.move ? ' <small>' + esc(x.move) + '</small>' : '') + (done ? ' <b class="ok">✓</b>' : '') + '</div>'
+            + '<div class="rrsub">' + esc(mdSlash(x.date)) + ' · ' + x.sets.length + '세트' + (x.top ? ' · 최고 ' + esc(x.top) + 'kg' : '') + '</div></div>'
+            + '<span class="rrgo">불러오기</span></button>';
+        }).join('');
+    icons();
+  }).catch(function(e){ var b=$('sheetBody'); if(b) b.innerHTML = '<p class="muted">불러오지 못했어요: ' + esc(e&&e.message||e) + '</p>'; });
+}
+function pickRecentWeight(i){
+  var x = RECENT_LIST[i]; if(!x) return;
+  var eq = gearByName(x.equip) || { id:'', name:x.equip, part:LOG.workout, moves:[] };
+  var mv = moveOf(eq, x.move) || (x.move ? { name:x.move, link:'' } : null);
+  closeSheet();
+  startDraft(eq, mv, x.sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; }));
+  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
+}
+
+/* ---- ⑤ 세트 입력 ---- */
+function setsStepHtml(){
+  var editing = DRAFT.editIdx != null;
+  var setsHtml = DRAFT.sets.map(function(s, si){
+    return '<div class="setrow">'
+      + '<span class="setno">' + (si+1) + '세트</span>'
+      + '<input type="number" inputmode="decimal" placeholder="무게kg" value="' + esc(s.weight) + '" oninput="DRAFT.sets[' + si + '].weight=this.value">'
+      + '<input type="number" inputmode="numeric" placeholder="횟수" value="' + esc(s.reps) + '" oninput="DRAFT.sets[' + si + '].reps=this.value">'
+      + (DRAFT.sets.length>1 ? '<button class="xbtn2" onclick="delDraftSet(' + si + ')">✕</button>' : '<span class="xbtn2 ghost"></span>')
+      + '</div>';
+  }).join('');
+  return '<div class="formhead2">'
+    +   gearThumbHtml(DRAFT.equipName, 'dhthumb')
+    +   '<div class="fhname"><b>' + esc(DRAFT.equipName) + '</b>' + (DRAFT.moveName ? '<span class="chip">' + esc(DRAFT.moveName) + '</span>' : '') + '</div>'
+    +   (editing ? '<span class="chip">고치는 중</span>' : '<button class="linkback" onclick="DRAFT=null;goStep(\'equip\')">바꾸기</button>')
+    + '</div>'
+    + '<div class="fhbtns">'
+    +   '<button class="howto" onclick="openHowto()">▶ 운동법 보기</button>'
+    +   '<button class="recentbtn' + (DRAFT.showRecent ? ' on' : '') + '" onclick="toggleRecent()">' + (DRAFT.showRecent ? '최근 기록 닫기' : '↺ 최근 기록') + '</button>'
+    + '</div>'
+    + (DRAFT.showRecent ? '<div class="lastbox" id="lastBox">' + lastWeightHtml(DRAFT.last) + '</div>' : '')
+    + '<div style="margin-top:8px">' + setsHtml + '</div>'
+    + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
+    + stepFoot('cancelDraft()', '취소', 'confirmWeight()', '저장하고 다음');
+}
+function cancelDraft(){ var wasEdit = DRAFT && DRAFT.editIdx != null; DRAFT = null; goStep(wasEdit ? 'menu' : 'equip'); }
+/* [최근 기록] 버튼 — 이 기구·동작의 최근 기록 펼치기/닫기 */
+function toggleRecent(){
+  if(!DRAFT) return;
+  DRAFT.showRecent = !DRAFT.showRecent;
+  renderLogView();
+  if(DRAFT.showRecent && !DRAFT.last) loadLastWeight();
+}
+function loadLastWeight(){
+  var d = DRAFT; if(!d) return;
+  call('lastWeightFor', d.equipName, d.moveName, LOG ? LOG.date : todayStr(), d.part || '').then(function(r){
+    if(DRAFT !== d) return;
+    d.last = r || { found:false };
+    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
+  }).catch(function(){
+    if(DRAFT !== d) return;
+    d.last = { found:false, err:true };
+    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
+  });
+}
+function lastWeightHtml(l){
+  if(!l) return '<span class="muted">지난번 기록 확인 중…</span>';
+  if(l.err) return '<span class="muted">지난번 기록을 불러오지 못했어요.</span>';
+  if(!l.found) return '<span class="muted">아직 이 동작 기록이 없어요. 오늘 기록이 다음 기준이 돼요 💪</span>';
+  var list = l.list || [];
+  return list.map(function(g, gi){
+      var sameAll = g.sets.length > 1 && g.sets.every(function(s){ return String(s.weight)===String(g.sets[0].weight) && String(s.reps)===String(g.sets[0].reps); });
+      var body = sameAll
+        ? '<span><b>' + esc(g.sets[0].weight) + 'kg × ' + esc(g.sets[0].reps) + '회 × ' + g.sets.length + '세트</b></span>'
+        : g.sets.map(function(s, i){ return '<span>' + (i+1) + '세트 <b>' + esc(s.weight) + 'kg × ' + esc(s.reps) + '</b></span>'; }).join('');
+      return '<div class="lastitem' + (gi===0 ? ' first' : '') + '">'
+        + '<div class="lasthead">' + (gi===0 ? '<span class="lasttag">가장 최근</span>' : '')
+        +   '<b>' + esc(mdSlash(g.date)) + '</b>'
+        +   ' · ' + g.sets.length + '세트 · 최고 <span class="hl">' + esc(g.top) + 'kg</span></div>'
+        + '<div class="lastsets">' + body + '</div>'
+        + '</div>';
+    }).join('')
+    + '<button class="fillbtn" onclick="fillFromLast()">지난번처럼 채우기</button>';
+}
+/* 세트 추가 — 바로 앞 세트의 무게·횟수를 그대로 복사 */
+function addDraftSet(){
+  var prev = DRAFT.sets[DRAFT.sets.length-1] || {weight:'',reps:''};
+  DRAFT.sets.push({ weight:prev.weight, reps:prev.reps });
+  renderLogView();
+}
+/* [지난번처럼 채우기] — 가장 최근 기록의 세트를 입력칸에 그대로 */
+function fillFromLast(){
+  var l = DRAFT && DRAFT.last;
+  if(!l || !l.found || !l.list || !l.list.length) return;
+  DRAFT.sets = l.list[0].sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; });
+  DRAFT.showRecent = false;
+  renderLogView(); toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
+}
+function delDraftSet(si){ DRAFT.sets.splice(si,1); if(!DRAFT.sets.length) DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
+/* 세트 저장 → 새로 추가면 다음 기구 고르기로, 고치기면 뭐 할래요로 */
+function confirmWeight(){
+  if(!DRAFT || !DRAFT.equipName){ toast('기구를 선택해 주세요.'); return; }
+  var sets = DRAFT.sets.filter(function(s){ return String(s.weight).trim()!=='' || String(s.reps).trim()!==''; });
+  if(!sets.length){ toast('무게·횟수를 한 세트 이상 입력해 주세요.'); return; }
+  var item = { equip:DRAFT.equipName, move:DRAFT.moveName, part:DRAFT.part, sets:sets.slice() };
+  var editing = DRAFT.editIdx != null;
+  if(editing) LOG.weights[DRAFT.editIdx] = item; else LOG.weights.push(item);
+  saveLog(); toast(DRAFT.equipName + ' 저장 ✓');
+  DRAFT = null; goStep(editing ? 'menu' : 'equip');
+}
+/* 운동법 보기 — 유튜브 링크 새 탭 (없으면 안내) */
+function openHowto(){
+  var link = DRAFT && DRAFT.moveLink ? String(DRAFT.moveLink).trim() : '';
+  if(!link){ toast('아직 운동법 링크가 없습니다.'); return; }
+  if(!/^https?:\/\//i.test(link)) link = 'https://' + link;
+  window.open(link, '_blank');
+}
+
+/* ---- ⑦ 오운완 ---- */
+function finStepHtml(){
+  var lines = LOG.cardio.map(function(c){ return '<div>' + esc(c.type) + ' <span class="muted">' + esc(runText(c)) + '</span></div>'; })
+    .concat(LOG.weights.map(function(w){ return '<div>' + esc(w.equip) + ' <span class="muted">' + esc(weightSum(w)) + '</span></div>'; }));
+  return '<div class="steph">오늘도 수고했어요!</div>'
+    + '<div class="stepsub">사진은 선택이에요</div>'
+    + finishInner()
+    + '<div class="finsum"><b>오늘 한 운동</b>' + (lines.length ? lines.join('') : '<div class="muted">아직 기록한 운동이 없어요.</div>') + '</div>'
+    + stepFoot('goStep(\'menu\')', '뒤로', 'submitWorkout(event)', '운동 완료!');
 }
 function discardLog(){
   if(!confirm('오늘 입력한 기록을 취소할까요? (저장 전이라 사라져요)')) return;
-  clearLog(); DRAFT=null; OPEN=''; switchTab('home');
+  clearLog(); resetSteps(); switchTab('home');
 }
-function delWeightItem(wi){ LOG.weights.splice(wi,1); saveLog(); renderLogView(); }
 
 /* ---- 오운완 사진 (선택, 미리보기+문구는 로컬) ---- */
 function finishInner(){
@@ -459,8 +819,7 @@ function finishInner(){
       + '<button class="softbtn" style="margin-top:10px" onclick="LOG.fin=null;LOG.finText=\'\';saveLog();renderLogView()">사진 다시 고르기</button>';
   }
   return '<div class="picker">'
-    + '<div class="picklabel">오운완 사진 (선택 · 안 올려도 완료 가능)</div>'
-    + '<button class="photobtn" onclick="openFinSheet()">' + ic('camera') + ' 사진 올리기</button>'
+    + '<button class="photobtn" onclick="openFinSheet()">' + ic('camera') + ' 오운완 사진 올리기</button>'
     + '<input type="file" accept="image/*" id="file_finimg" class="hiddenfile">'
     + '<input type="file" accept="image/*" capture="environment" id="cam_finimg" class="hiddenfile">'
     + '</div>';
@@ -493,318 +852,32 @@ function makeThumbFromImage(dataUrl, done){
   im.src=dataUrl;
 }
 
+/* 유산소 기록 한 줄 (런닝·천국의 계단·사이클 공용) */
 function runText(r){
+  var has = function(v){ return v != null && String(v).trim() !== ''; };
   var p = [];
-  if(String(r.min)!=='') p.push(r.min+'분'); if(String(r.km)!=='') p.push(r.km+'km');
-  if(String(r.incline)!=='') p.push('경사'+r.incline); if(String(r.speed)!=='') p.push(r.speed+'km/h'); if(String(r.kcal)!=='') p.push(r.kcal+'kcal');
+  if(has(r.min)) p.push(r.min+'분');
+  if(has(r.km)) p.push(r.km+'km');
+  if(has(r.floors)) p.push(r.floors+'층');
+  if(has(r.incline)) p.push('경사'+r.incline);
+  if(has(r.speed)) p.push(r.speed+'km/h');
+  if(has(r.level)) p.push('레벨'+r.level);
+  if(has(r.kcal)) p.push(r.kcal+'kcal');
   return p.join(' · ') || '기록';
 }
-function runFormHtml(){
-  var r = LOG.running || {};
-  var runEq = '';
-  for(var k=0;k<GEAR.length;k++){ if(String(GEAR[k].name).indexOf('런닝') >= 0 && GEAR[k].thumb){ runEq = GEAR[k].name; break; } }
-  return '<div class="subcard runform">'
-    + '<div class="drafthead">'
-    +   gearThumbHtml(runEq, 'dhthumb', 'footprints')
-    +   '<b>런닝 입력</b>'
-    +   '<button class="recentbtn' + (RUN_RECENT.show ? ' on' : '') + '" onclick="toggleRunRecent()">' + (RUN_RECENT.show ? '최근 기록 닫기' : '최근 기록') + '</button>'
-    + '</div>'
-    + (RUN_RECENT.show ? '<div class="lastbox" id="runLastBox">' + lastRunHtml(RUN_RECENT.data) + '</div>' : '')
-    + '<div class="grid2" style="margin-top:10px">'
-    +   numField('run_min','시간(분)','10',r.min) + numField('run_km','거리(km)','1.2',r.km)
-    +   numField('run_incline','경사','3',r.incline) + numField('run_speed','속도(km/h)','7',r.speed)
-    +   numField('run_kcal','칼로리','90',r.kcal) + '<div></div>'
-    + '</div>'
-    + '<div class="row" style="margin-top:10px">'
-    +   '<button class="button ghost" style="flex:1" onclick="OPEN=\'\';renderLogView()">취소</button>'
-    +   '<button class="button accent" style="flex:2" onclick="saveRun()">추가</button>'
-    + '</div></div>';
-}
-/* 런닝 [최근 기록] 버튼 — 입력 중인 값은 지키면서 펼치기/닫기 */
-var RUN_RECENT = { show:false, data:null };
-function toggleRunRecent(){
-  var keep = { min:val('run_min'), km:val('run_km'), incline:val('run_incline'), speed:val('run_speed'), kcal:val('run_kcal') };
-  RUN_RECENT.show = !RUN_RECENT.show;
-  renderLogView();
-  ['min','km','incline','speed','kcal'].forEach(function(k){ var el=$('run_'+k); if(el && keep[k]!=='') el.value = keep[k]; });
-  if(RUN_RECENT.show && !RUN_RECENT.data){
-    call('lastRunFor', LOG ? LOG.date : todayStr()).then(function(r){
-      RUN_RECENT.data = r || { found:false };
-    }).catch(function(){
-      RUN_RECENT.data = { found:false, err:true };
-    }).then(function(){
-      var box = $('runLastBox'); if(box) box.innerHTML = lastRunHtml(RUN_RECENT.data);
-    });
-  }
-}
-function lastRunHtml(l){
-  if(!l) return '<span class="muted">최근 기록 확인 중…</span>';
-  if(l.err) return '<span class="muted">최근 기록을 불러오지 못했어요.</span>';
-  if(!l.found) return '<span class="muted">아직 런닝 기록이 없어요. 오늘 기록이 다음 기준이 돼요 🏃</span>';
-  return l.list.map(function(r, i){
-    return '<div class="lastitem' + (i===0 ? ' first' : '') + '">'
-      + '<div class="lasthead">' + (i===0 ? '<span class="lasttag">가장 최근</span>' : '') + '<b>' + esc(mdSlash(r.date)) + '</b></div>'
-      + '<div class="lastsets"><span><b>' + esc(runText(r)) + '</b></span></div>'
-      + '</div>';
-  }).join('')
-  + '<button class="fillbtn" onclick="fillRunFromLast()">지난번처럼 채우기</button>';
-}
-/* 런닝 [지난번처럼 채우기] — 가장 최근 런닝 값을 입력칸에 */
-function fillRunFromLast(){
-  var l = RUN_RECENT.data; if(!l || !l.found) return;
-  var r = l.list[0];
-  RUN_RECENT.show = false; renderLogView();
-  ['min','km','incline','speed','kcal'].forEach(function(k){ var el=$('run_'+k); if(el) el.value = (r[k]==null ? '' : r[k]); });
-  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
-}
-
-/* ---- 지난번 같은 부위 루틴 (기록하기 웨이트 카드) ---- */
-var ROUTINE = { key:'', data:null };
-function routineHtml(){
-  if(!LOG || !LOG.workout || PARTS.indexOf(LOG.workout) < 0) return '';
-  var key = LOG.date + '|' + LOG.workout;
-  if(ROUTINE.key !== key){
-    ROUTINE = { key:key, data:null };
-    call('routineFor', LOG.workout, LOG.date).then(function(r){
-      if(ROUTINE.key === key) ROUTINE.data = r || { found:false };
-    }).catch(function(){
-      if(ROUTINE.key === key) ROUTINE.data = { found:false };
-    }).then(function(){
-      var box = $('routineBox'); if(box && ROUTINE.key === key){ box.innerHTML = routineHtml(); icons(); }
-    });
-  }
-  var d = ROUTINE.data;
-  if(!d) return '<p class="muted" style="margin:0 0 8px">지난번 ' + esc(LOG.workout) + ' 루틴 불러오는 중…</p>';
-  if(!d.found || !d.items.length) return '';
-  var skips = LOG.skipRoutine || [];
-  var hidden = d.items.filter(function(it){ return skips.indexOf(routineKey(it)) >= 0; }).length;
-  return '<div class="routinehead">지난번 <b>' + esc(LOG.workout) + '</b> 루틴 <span class="muted">' + esc(mdSlash(d.date)) + ' · 누르면 그날 기록으로 채워져요</span></div>'
-    + d.items.map(function(it, i){
-        var done = LOG.weights.some(function(w){ return w.equip === it.equip && (w.move||'') === (it.move||''); });
-        // 같은 기구가 루틴에 두 번 있을 때만 동작 이름을 작게 붙여 구분
-        var dup = d.items.some(function(o, j){ return j !== i && o.equip === it.equip; });
-        if(skips.indexOf(routineKey(it)) >= 0) return '';
-        return '<div class="routineline">'
-          + '<button class="routinerow' + (done ? ' done' : '') + '" onclick="pickRoutine(' + i + ')">'
-          +   gearThumbHtml(it.equip, 'rtthumb')
-          +   '<span class="rtname">' + esc(it.equip) + (dup && it.move ? ' <small>' + esc(it.move) + '</small>' : '') + '</span>'
-          +   (done ? '<span class="rtdone">✓</span>' : '')
-          + '</button>'
-          + '<button class="rtskip" onclick="skipRoutine(' + i + ')" aria-label="오늘은 안 해요">✕</button>'
-          + '</div>';
-      }).join('')
-    + (hidden ? '<button class="rtrestore" onclick="restoreRoutine()">뺀 기구 ' + hidden + '개 다시 보기</button>' : '');
-}
-/* 루틴 ✕ — 오늘 안 할 기구는 목록에서 빼기 (오늘 기록에만 저장, 지난 기록은 그대로) */
-function routineKey(it){ return (it.equip||'') + '|' + (it.move||''); }
-function skipRoutine(i){
-  var it = ROUTINE.data && ROUTINE.data.items && ROUTINE.data.items[i]; if(!it) return;
-  LOG.skipRoutine = LOG.skipRoutine || [];
-  if(LOG.skipRoutine.indexOf(routineKey(it)) < 0) LOG.skipRoutine.push(routineKey(it));
-  saveLog();
-  var box = $('routineBox'); if(box){ box.innerHTML = routineHtml(); icons(); }
-}
-function restoreRoutine(){
-  LOG.skipRoutine = []; saveLog();
-  var box = $('routineBox'); if(box){ box.innerHTML = routineHtml(); icons(); }
-}
 /* 기구 이름으로 등록 사진 찾기 → 작은 썸네일 (없으면 라인 아이콘) */
-function gearThumbOf(name){
-  for(var k=0;k<GEAR.length;k++){ if(GEAR[k].name === name) return GEAR[k].thumb || ''; }
-  return '';
-}
+function gearThumbOf(name){ var e = gearByName(name); return e ? (e.thumb || '') : ''; }
 function gearThumbHtml(name, cls, iconName){
-  var t = gearThumbOf(name);
+  var t = name ? gearThumbOf(name) : '';
   return t ? '<img class="' + cls + '" src="' + esc(t) + '" alt="">'
            : '<span class="' + cls + ' noimg">' + ic(iconName || 'dumbbell') + '</span>';
 }
-function pickRoutine(i){
-  var it = ROUTINE.data && ROUTINE.data.items && ROUTINE.data.items[i]; if(!it) return;
-  var eq = null;
-  for(var k=0;k<GEAR.length;k++){ if(GEAR[k].name === it.equip){ eq = GEAR[k]; break; } }
-  if(!eq) eq = { id:'', name:it.equip, part:LOG.workout, moves:[] };
-  var mv = null;
-  (eq.moves||[]).forEach(function(m){ if(!mv && m.name === it.move) mv = m; });
-  if(!mv && it.move) mv = { name:it.move, link:'' };
-  setDraft(eq, mv);
-  DRAFT.sets = it.sets.map(function(s){ return { weight:String(s.weight), reps:String(s.reps) }; });
-  renderLogView();
-  var lg = $('log'), f = lg && lg.querySelector('.subcard .setrow input'); if(f && f.scrollIntoView) f.scrollIntoView({ block:'center', behavior:'smooth' });
-  toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
-}
-function numField(id, label, ph, val){
-  return '<div class="field"><label>' + label + '</label><input id="' + id + '" type="number" inputmode="decimal" placeholder="' + ph + '" value="' + (val==null?'':esc(val)) + '"></div>';
-}
-function saveRun(){
-  var r = { min:val('run_min'), km:val('run_km'), incline:val('run_incline'), speed:val('run_speed'), kcal:val('run_kcal') };
-  if(['min','km','incline','speed','kcal'].every(function(k){return String(r[k]).trim()==='';})){ toast('런닝 값을 입력해 주세요.'); return; }
-  LOG.running = r; OPEN=''; saveLog(); toast('런닝 추가 ✓'); renderLogView();
+function numField(id, label, ph, v){
+  return '<div class="field"><label>' + label + '</label><input id="' + id + '" type="number" inputmode="decimal" placeholder="' + ph + '" value="' + (v==null?'':esc(v)) + '"></div>';
 }
 function val(id){ var el=$(id); return el?el.value:''; }
-
-/* ---- 웨이트: 기구 → 동작 팝업 ---- */
-function openWeight(){
-  if(!GEAR.length){ toast('먼저 기구 목록에서 기구를 등록하세요.'); return; }
-  // 오늘의 운동 부위를 기본으로 (없으면 첫 부위)
-  if(PARTS.indexOf(PICK_PART) < 0) PICK_PART = (LOG && PARTS.indexOf(LOG.workout) >= 0) ? LOG.workout : (PARTS[0]||'');
-  PICK_STEP='equip'; PICK_EQUIP=null; renderPicker();
-}
-var PICK_PART = '';
-function pickPart(p){ PICK_PART = p; renderPicker(); }
-function renderPicker(){
-  var sh = $('pickerModal');
-  if(!sh){ sh=document.createElement('div'); sh.id='pickerModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
-  var body, title;
-  if(PICK_STEP==='equip'){
-    title = '기구 선택';
-    var chips = '<div class="wchips" style="margin-bottom:12px">' + PARTS.map(function(p){
-      return '<button class="wchip' + (p===PICK_PART?' on':'') + '" onclick="pickPart(\'' + esc(p) + '\')">' + esc(p) + '</button>';
-    }).join('') + '</div>';
-    var rows = [];
-    GEAR.forEach(function(e,i){ if(e.part===PICK_PART) rows.push(
-      '<button class="pickrow" onclick="pickEquipStep(' + i + ')">'
-        + (e.thumb ? '<img class="prthumb" src="' + esc(e.thumb) + '">' : '<span class="prthumb prnoimg">🏋</span>')
-        + '<span class="prname">' + esc(e.name) + '</span>'
-        + '<span class="prsub">동작 ' + (e.moves||[]).length + '</span>'
-      + '</button>'); });
-    body = chips + (rows.length ? rows.join('') : '<p class="muted">' + esc(PICK_PART) + ' 기구가 없어요. 기구 목록에서 등록해 주세요.</p>');
-  } else {
-    title = esc(PICK_EQUIP.name) + ' · 동작 선택';
-    var moves = PICK_EQUIP.moves || [];
-    body = moves.length ? moves.map(function(m,i){
-      return '<button class="pickrow" onclick="pickMoveStep(' + i + ')">'
-        + (m.thumb ? '<img class="prthumb" src="' + esc(m.thumb) + '">' : '<span class="prthumb prnoimg">💪</span>')
-        + '<span class="prname">' + esc(m.name) + '</span>'
-        + (m.link ? '<span class="prsub">▶ 영상</span>' : '')
-        + '</button>';
-    }).join('')
-      : '<p class="muted">등록된 동작이 없어요. 기구 목록에서 동작을 추가하거나, 아래 버튼으로 동작 없이 기록해요.</p>'
-        + '<button class="button accent" style="width:100%;margin-top:10px" onclick="pickMoveNone()">동작 없이 기록</button>';
-  }
-  sh.innerHTML =
-    '<div class="modalbg" onclick="closePicker()"></div>'
-    + '<div class="modalbox">'
-    +   '<div class="modalhead"><b>' + title + '</b><button class="xbtn" onclick="closePicker()">✕</button></div>'
-    +   (PICK_STEP==='move' ? '<button class="linkback" onclick="PICK_STEP=\'equip\';renderPicker()">‹ 기구 다시 고르기</button>' : '')
-    +   '<div class="modalbody">' + body + '</div>'
-    + '</div>';
-  sh.classList.add('on');
-}
 function photoThumb(thumb, fallback){
   return thumb ? '<img class="pcimg" src="' + esc(thumb) + '">' : '<div class="pcimg pcnoimg">' + fallback + '</div>';
-}
-function closePicker(){ var sh=$('pickerModal'); if(sh) sh.classList.remove('on'); }
-function pickEquipStep(i){
-  PICK_EQUIP = GEAR[i];
-  var moves = PICK_EQUIP.moves || [];
-  if(moves.length === 1){ setDraft(PICK_EQUIP, moves[0]); return; }
-  PICK_STEP='move'; renderPicker();
-}
-function pickMoveStep(i){ setDraft(PICK_EQUIP, PICK_EQUIP.moves[i]); }
-function pickMoveNone(){ setDraft(PICK_EQUIP, null); }
-function setDraft(equip, move){
-  DRAFT = { equipId:equip.id, equipName:equip.name, part:equip.part,
-            moveName: move ? move.name : '', moveLink: move ? (move.link||'') : '', sets:[{weight:'',reps:''}], last:null };
-  closePicker(); OPEN='weight'; renderLogView();
-}
-function weightFormHtml(){
-  if(!DRAFT) return '';
-  var setsHtml = DRAFT.sets.map(function(s, si){
-    return '<div class="setrow">'
-      + '<span class="setno">' + (si+1) + '세트</span>'
-      + '<input type="number" inputmode="decimal" placeholder="무게kg" value="' + esc(s.weight) + '" oninput="DRAFT.sets[' + si + '].weight=this.value">'
-      + '<input type="number" inputmode="numeric" placeholder="횟수" value="' + esc(s.reps) + '" oninput="DRAFT.sets[' + si + '].reps=this.value">'
-      + (DRAFT.sets.length>1 ? '<button class="xbtn2" onclick="delDraftSet(' + si + ')">✕</button>' : '<span style="width:40px"></span>')
-      + '</div>';
-  }).join('');
-  return '<div class="subcard">'
-    + '<div class="drafthead">'
-    +   gearThumbHtml(DRAFT.equipName, 'dhthumb')
-    +   '<b>' + esc(DRAFT.equipName) + '</b>'
-    +   (DRAFT.moveName ? ' <span class="chip">' + esc(DRAFT.moveName) + '</span>' : '')
-    +   '<button class="recentbtn' + (DRAFT.showRecent ? ' on' : '') + '" onclick="toggleRecent()">' + (DRAFT.showRecent ? '최근 기록 닫기' : '최근 기록') + '</button>'
-    +   '<button class="howto" onclick="openHowto()">▶ 운동법 보기</button>'
-    +   '<button class="linkback" onclick="openWeight()">바꾸기</button>'
-    + '</div>'
-    + (DRAFT.showRecent ? '<div class="lastbox" id="lastBox">' + lastWeightHtml(DRAFT.last) + '</div>' : '')
-    + '<div style="margin-top:8px">' + setsHtml + '</div>'
-    + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
-    + '<div class="row" style="margin-top:10px">'
-    +   '<button class="button ghost" style="flex:1" onclick="OPEN=\'\';DRAFT=null;renderLogView()">취소</button>'
-    +   '<button class="button accent" style="flex:2" onclick="confirmWeight()">추가</button>'
-    + '</div></div>';
-}
-/* [최근 기록] 버튼 — 누르면 이 동작의 최근 기록 펼치기/닫기 */
-function toggleRecent(){
-  if(!DRAFT) return;
-  DRAFT.showRecent = !DRAFT.showRecent;
-  renderLogView();
-  if(DRAFT.showRecent && !DRAFT.last) loadLastWeight();
-}
-/* 지난번 같은 기구·동작 기록 불러오기 (화면 이동 없이 입력칸 위에 표시) */
-function loadLastWeight(){
-  var d = DRAFT; if(!d) return;
-  call('lastWeightFor', d.equipName, d.moveName, LOG ? LOG.date : todayStr(), d.part || '').then(function(r){
-    if(DRAFT !== d) return;
-    d.last = r || { found:false };
-    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
-  }).catch(function(){
-    if(DRAFT !== d) return;
-    d.last = { found:false, err:true };
-    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
-  });
-}
-function lastWeightHtml(l){
-  if(!l) return '<span class="muted">지난번 기록 확인 중…</span>';
-  if(l.err) return '<span class="muted">지난번 기록을 불러오지 못했어요.</span>';
-  if(!l.found) return '<span class="muted">아직 이 동작 기록이 없어요. 오늘 기록이 다음 기준이 돼요 💪</span>';
-  var list = l.list || [];
-  return list.map(function(g, gi){
-      var reps = g.sets.map(function(s){ return s.reps; });
-      var sameAll = g.sets.length > 1 && g.sets.every(function(s){ return String(s.weight)===String(g.sets[0].weight) && String(s.reps)===String(g.sets[0].reps); });
-      var body = sameAll
-        ? '<span><b>' + esc(g.sets[0].weight) + 'kg × ' + esc(g.sets[0].reps) + '회 × ' + g.sets.length + '세트</b></span>'
-        : g.sets.map(function(s, i){ return '<span>' + (i+1) + '세트 <b>' + esc(s.weight) + 'kg × ' + esc(s.reps) + '</b></span>'; }).join('');
-      return '<div class="lastitem' + (gi===0 ? ' first' : '') + '">'
-        + '<div class="lasthead">' + (gi===0 ? '<span class="lasttag">가장 최근</span>' : '')
-        +   '<b>' + esc(mdSlash(g.date)) + '</b>'
-        +   ' · ' + g.sets.length + '세트 · 최고 <span class="hl">' + esc(g.top) + 'kg</span></div>'
-        + '<div class="lastsets">' + body + '</div>'
-        + '</div>';
-    }).join('')
-    + '<button class="fillbtn" onclick="fillFromLast()">지난번처럼 채우기</button>';
-}
-/* 세트 추가 — 바로 앞 세트의 무게·횟수를 그대로 복사 */
-function addDraftSet(){
-  var prev = DRAFT.sets[DRAFT.sets.length-1] || {weight:'',reps:''};
-  DRAFT.sets.push({ weight:prev.weight, reps:prev.reps });
-  renderLogView();
-}
-/* [지난번처럼 채우기] — 가장 최근 기록의 세트를 입력칸에 그대로 */
-function fillFromLast(){
-  var l = DRAFT && DRAFT.last;
-  if(!l || !l.found || !l.list || !l.list.length) return;
-  DRAFT.sets = l.list[0].sets.map(function(s){ return { weight:String(s.weight==null?'':s.weight), reps:String(s.reps==null?'':s.reps) }; });
-  DRAFT.showRecent = false;
-  renderLogView(); toast('지난번 기록으로 채웠어요. 오늘 숫자만 고치세요 ✓');
-}
-function delDraftSet(si){ DRAFT.sets.splice(si,1); if(!DRAFT.sets.length) DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
-/* 웨이트 기구 1개를 LOG.weights에 추가 (서버 아님) */
-function confirmWeight(){
-  if(!DRAFT || !DRAFT.equipName){ toast('기구를 선택해 주세요.'); return; }
-  var sets = DRAFT.sets.filter(function(s){ return String(s.weight).trim()!=='' || String(s.reps).trim()!==''; });
-  if(!sets.length){ toast('무게·횟수를 한 세트 이상 입력해 주세요.'); return; }
-  LOG.weights.push({ equip:DRAFT.equipName, move:DRAFT.moveName, part:DRAFT.part, sets:sets.slice() });
-  saveLog(); toast(DRAFT.equipName + ' 추가 ✓');
-  DRAFT=null; OPEN=''; renderLogView();
-}
-function openForm(kind){ OPEN=kind; renderLogView(); }
-/* 운동법 보기 — 유튜브 링크 새 탭 (없으면 안내) */
-function openHowto(){
-  var link = DRAFT && DRAFT.moveLink ? String(DRAFT.moveLink).trim() : '';
-  if(!link){ toast('아직 운동법 링크가 없습니다.'); return; }
-  if(!/^https?:\/\//i.test(link)) link = 'https://' + link;
-  window.open(link, '_blank');
 }
 
 /* ====================================================================
@@ -812,7 +885,8 @@ function openHowto(){
  * ==================================================================== */
 function submitWorkout(ev){
   if(!LOG){ return; }
-  if(!LOG.running && !LOG.weights.length && !LOG.fin){ toast('기록한 내용이 없어요.'); return; }
+  normalizeLog();
+  if(!LOG.cardio.length && !LOG.weights.length && !LOG.fin){ toast('기록한 내용이 없어요.'); return; }
   // 사진 없으면 인증 경고
   if(!LOG.fin){
     if(!confirm('오운완 사진이 없으면 인증이 안 남아요. 그래도 완료할까요?')) return;
@@ -821,7 +895,7 @@ function submitWorkout(ev){
 
   // 단계 목록 구성
   var steps=[{k:'start',t:'기록 시작'}];
-  if(LOG.running) steps.push({k:'run',t:'런닝 저장'});
+  LOG.cardio.forEach(function(c,i){ steps.push({k:'cd'+i, t:'유산소 저장 (' + c.type + ')'}); });
   LOG.weights.forEach(function(w,i){ steps.push({k:'wt'+i, t:'웨이트 저장 (' + w.equip + ')'}); });
   if(LOG.fin) steps.push({k:'photo',t:'오운완 사진 올리는 중'});
   steps.push({k:'done',t:'마무리'});
@@ -830,18 +904,26 @@ function submitWorkout(ev){
   var sid='';
   // 순차 제출 (단계별 % 표시)
   call('startSession', { date:LOG.date, workout:LOG.workout }).then(function(r){
-    sid=r.id; loadStep(LOG.running?'run':(LOG.weights.length?'wt0':(LOG.fin?'photo':'done')));
-    return LOG.running ? call('addRunning', sid, LOG.running) : null;
+    sid=r.id; loadStep(LOG.cardio.length?'cd0':(LOG.weights.length?'wt0':(LOG.fin?'photo':'done')));
+    return chainCardio(sid, 0);
   }).then(function(){
     return chainWeights(sid, 0);
   }).then(function(){
     return LOG.fin ? uploadFinish(sid) : null;
   }).then(function(){
     loadStep('done'); loadDone();
-    clearLog(); DRAFT=null; OPEN='';
+    clearLog(); resetSteps();
     toast('오늘 운동 완료! 💪');
     switchTab('home');
   }).catch(function(e){ loadDone(); if(btn) btn.disabled=false; toast('저장 실패: ' + (e&&e.message||e)); });
+}
+/* 유산소를 하나씩 순차 저장 */
+function chainCardio(sid, i){
+  if(i >= LOG.cardio.length) return Promise.resolve();
+  return call('addRunning', sid, LOG.cardio[i]).then(function(){
+    loadStep(i+1 < LOG.cardio.length ? 'cd'+(i+1) : (LOG.weights.length ? 'wt0' : (LOG.fin ? 'photo' : 'done')));
+    return chainCardio(sid, i+1);
+  });
 }
 /* 웨이트를 하나씩 순차 저장하며 단계 % 올림 */
 function chainWeights(sid, i){
@@ -1221,7 +1303,7 @@ function closeDay(){ var sh=$('dayModal'); if(sh) sh.classList.remove('on'); }
 /* 요약 한 줄: 런닝 했는지 + 웨이트 기구 수 + 오운완 */
 function sessionSummaryRow(s, i){
   var bits = [];
-  if((s.running||[]).length) bits.push(ic('footprints') + ' 런닝');
+  if((s.running||[]).length) bits.push(ic('footprints') + ' 유산소');
   var nEquip = (s.weights||[]).length;
   if(nEquip){
     var first = s.weights[0].equip;
@@ -1247,10 +1329,8 @@ function openSessionDetail(i){
   var sh = $('detailModal');
   if(!sh){ sh=document.createElement('div'); sh.id='detailModal'; sh.className='modalwrap'; document.body.appendChild(sh); }
   var run = (s.running||[]).map(function(r){
-    var parts = [];
-    if(r.min!=='') parts.push(r.min+'분'); if(r.km!=='') parts.push(r.km+'km');
-    if(r.incline!=='') parts.push('경사'+r.incline); if(r.speed!=='') parts.push(r.speed+'km/h'); if(r.kcal!=='') parts.push(r.kcal+'kcal');
-    return '<div class="muted" style="margin:3px 0">' + ic('footprints') + ' ' + esc(parts.join(' · ')) + '</div>';
+    var c = cardioDef(r.type || '런닝머신');
+    return '<div class="muted" style="margin:3px 0">' + ic(c.icon) + ' <b>' + esc(c.type) + '</b> ' + esc(runText(r)) + '</div>';
   }).join('');
   var wt = (s.weights||[]).map(function(w){
     var rows = (w.sets||[]).map(function(x, si){
@@ -1331,7 +1411,7 @@ function renderLogShare(){
     // 런닝
     (s.running||[]).forEach(function(r){
       ctx.fillStyle='#49e39b'; ctx.font='800 44px "Gothic A1",sans-serif';
-      ctx.fillText('🏃 런닝', pad, y);
+      ctx.fillText('🏃 ' + (r.type === '천국의 계단' ? '계단' : (r.type === '사이클' ? '사이클' : '런닝')), pad, y);
       ctx.fillStyle='#eef1f5'; ctx.font='700 40px "Gothic A1",sans-serif';
       ctx.fillText(runText(r), pad + 190, y);
       y += 76;
@@ -1646,7 +1726,7 @@ function todayGo(p){ TODAY_PAGE = p; renderTodayPage(); }
 /* 오늘 한 운동 행 목록 (지난번 같은 기구와 비교) */
 function todayDetailRows(d, mine, today){
   var rows = [];
-  (d.running||[]).forEach(function(r){ rows.push('<div class="tdrow"><div class="tdname">🏃 런닝</div><div class="tdval">' + esc(runText(r)) + '</div></div>'); });
+  (d.running||[]).forEach(function(r){ rows.push('<div class="tdrow"><div class="tdname">🏃 ' + esc(r.type || '런닝머신') + '</div><div class="tdval">' + esc(runText(r)) + '</div></div>'); });
   var groups = {}, order = [];
   (d.weights||[]).forEach(function(w){
     var k = w.equip + (w.move ? ' · ' + w.move : '');
@@ -2185,7 +2265,7 @@ function renderManageList(){
   b.innerHTML =
     '<p class="muted" style="margin:0 0 10px">지울 날짜를 체크한 뒤 삭제하세요. (사진도 함께 지워져요)</p>'
     + MANAGE_SESS.map(function(s){
-      var bits=[]; if(s.nRun) bits.push('런닝'); if(s.nEquip) bits.push('웨이트 '+s.nEquip); if(s.hasPhoto) bits.push('오운완');
+      var bits=[]; if(s.nRun) bits.push('유산소'); if(s.nEquip) bits.push('웨이트 '+s.nEquip); if(s.hasPhoto) bits.push('오운완');
       return '<label class="mrow">'
         + '<input type="checkbox" ' + (MANAGE_SEL[s.id]?'checked':'') + ' onchange="toggleManage(\'' + s.id + '\')">'
         + '<div class="mrow-t"><b>' + esc(s.date) + '</b>' + (s.workout?' <span class="muted">· '+esc(s.workout)+'</span>':'') + '<br><span class="muted">' + esc(bits.join(' · ')||'기록') + '</span></div>'

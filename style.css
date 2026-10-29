@@ -507,3 +507,84 @@ select{-webkit-appearance:none;appearance:none;
 .rtskip{width:38px;flex-shrink:0;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--sub);font-size:13px;cursor:pointer}
 .rtskip:active{border-color:var(--accent);color:var(--accent)}
 .rtrestore{display:block;margin:2px 0 8px auto;background:none;border:0;color:var(--sub);font-size:12px;text-decoration:underline;cursor:pointer}
+/* ===== WF5.0 기록하기 단계별 화면 ===== */
+.steptop{padding:14px 16px}
+.steptabs{display:flex;gap:6px;overflow-x:auto;margin-top:10px;padding-bottom:2px;scrollbar-width:none}
+.steptabs::-webkit-scrollbar{display:none}
+.steptab{flex-shrink:0;padding:6px 11px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--line);color:var(--sub);background:var(--card2);cursor:pointer;font-family:inherit;white-space:nowrap}
+.steptab.done{border-color:rgba(73,227,155,.5);color:var(--ok);background:rgba(73,227,155,.08)}
+.steptab.done.sel{background:var(--ok);color:var(--ink);border-color:var(--ok)}
+.steptab.now{background:var(--main);color:var(--ink);border-color:var(--main)}
+.steptab.fin{border-style:dashed}
+.steptab.fin.now{border-style:solid}
+.tabedit{display:flex;align-items:center;gap:8px;margin-top:10px;padding:9px 12px;border-radius:12px;background:var(--card2);border:1px solid var(--main);font-size:13px}
+.tabedit b{color:var(--main);flex-shrink:0}
+.tabedit .muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.tabedit button{flex-shrink:0;background:none;border:0;font:inherit;font-size:12px;font-weight:800;cursor:pointer;padding:2px 4px}
+.te-edit{color:var(--main)}
+.te-del{color:var(--accent)}
+.stepcard{padding:18px 16px}
+.steph{font-size:19px;font-weight:800;margin:0 0 4px}
+.stepsub{font-size:12px;color:var(--sub);margin:0 0 14px}
+.stepfoot{display:flex;gap:8px;margin-top:16px}
+.stepfoot .button{flex:1;padding:14px}
+.stepfoot .button.accent{flex:2}
+/* 뭐 할래요 */
+.pickgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pickgrid .pickbig:nth-child(3){grid-column:1 / span 2}
+.pickbig{padding:18px 10px;border-radius:16px;background:var(--card2);border:1px solid var(--line);text-align:center;color:var(--text);cursor:pointer;font-family:inherit}
+.pickbig:active{border-color:var(--main);transform:scale(.98)}
+.pickbig svg{width:32px;height:32px;color:var(--main)}
+.pickbig .pn{font-size:15px;font-weight:800;margin-top:8px}
+.pickbig .ps{font-size:11px;color:var(--sub);margin-top:2px}
+.pickbig .ps.did{color:var(--ok);font-weight:700}
+.pickbig.wt{grid-column:1 / span 2;display:flex;align-items:center;gap:12px;text-align:left;padding:16px}
+.pickbig.wt svg{width:38px;height:38px;flex-shrink:0}
+.pickbig.wt .pn{margin-top:0}
+.pickbig .pcnt{margin-left:auto;font-size:12px;color:var(--ok);font-weight:700}
+.finnext{display:block;width:100%;margin-top:14px;padding:14px;border-radius:14px;border:1px dashed rgba(198,244,50,.5);background:none;color:var(--main);font:inherit;font-weight:800;font-size:14px;cursor:pointer}
+.finnext.ready{background:var(--main);color:var(--ink);border-style:solid}
+/* 입력 화면 머리 */
+.formhead2{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:17px}
+.formhead2 .dhthumb{width:40px;height:40px;border-radius:10px}
+.formhead2 .fhname{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.formhead2 .linkback{padding:0;margin-left:auto}
+.formhead2 .chip{font-size:11px}
+.fhbtns{display:flex;gap:6px;margin-bottom:6px}
+.fhbtns .howto,.fhbtns .recentbtn{margin-left:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.fhbtns .howto{border:1px solid rgba(255,90,95,.4);background:rgba(255,90,95,.1);color:#ff5a5f}
+.fhbtns .recentbtn{border:1px solid rgba(198,244,50,.45);background:rgba(198,244,50,.1);color:var(--main)}
+.fhbtns .recentbtn.on{background:var(--main);color:#10131a;border-color:var(--main)}
+.loadbtn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:11px;border-radius:12px;border:1px solid rgba(198,244,50,.45);background:rgba(198,244,50,.08);color:var(--main);font:inherit;font-size:13px;font-weight:800;margin:4px 0 14px;cursor:pointer}
+.loadbtn svg{width:16px;height:16px}
+.xbtn2.ghost{visibility:hidden}
+.wchips.sm .wchip{padding:6px 12px;font-size:12px}
+/* 기구 고르기 */
+.eqgrid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.eqcard{display:flex;flex-direction:column;border-radius:14px;background:var(--card2);border:1px solid var(--line);overflow:hidden;padding:0;cursor:pointer;color:var(--text);font-family:inherit;text-align:left}
+.eqcard:active{border-color:var(--main)}
+.eqcard.done{opacity:.5}
+.eqimg{width:100%;height:84px;object-fit:cover;display:block;background:var(--card)}
+.eqimg.noimg{display:flex;align-items:center;justify-content:center;color:var(--sub)}
+.eqimg.noimg svg{width:26px;height:26px}
+.eqname{font-size:13px;font-weight:800;padding:8px 10px 9px}
+.ok{color:var(--ok)}
+/* 동작 고르기 · 팝업 줄 */
+.moverow,.rrow{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;margin-bottom:7px;border-radius:12px;background:var(--card2);border:1px solid var(--line);color:var(--text);font-family:inherit;text-align:left;cursor:pointer}
+.moverow:active,.rrow:active{border-color:var(--main)}
+.rrow.first{border-color:rgba(198,244,50,.45)}
+.rrow.done{opacity:.55}
+.rrthumb{width:42px;height:42px;flex-shrink:0;border-radius:10px;object-fit:cover;background:var(--card);border:1px solid var(--line)}
+.rrthumb.noimg{display:flex;align-items:center;justify-content:center;color:var(--sub)}
+.rrthumb.noimg svg{width:18px;height:18px}
+.rrtext{flex:1;min-width:0}
+.rrname{font-size:14px;font-weight:800}
+.rrname small{font-size:11px;font-weight:500;color:var(--sub);margin-left:4px}
+.rrsub{font-size:11px;color:var(--sub);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrgo{flex-shrink:0;font-size:12px;font-weight:800;color:var(--main)}
+.mvname{flex:1;font-size:14px;font-weight:700}
+.mvtag{flex-shrink:0;font-size:11px;color:#ff5a5f;font-weight:700}
+/* 오운완 요약 */
+.finsum{margin-top:12px;padding:10px 12px;border-radius:12px;background:var(--card2);border:1px solid var(--line);font-size:13px;line-height:1.9}
+.finsum b{display:block;margin-bottom:2px}
+.finsum .muted{font-size:12px}

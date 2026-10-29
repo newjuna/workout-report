@@ -4,8 +4,9 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF4.2';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
-  const WORKOUTS = ['가슴', '등', '어깨', '하체'];
+  const VERSION = 'WF5.0';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const WORKOUTS = ['가슴', '등', '어깨', '하체', '유산소'];   // '유산소' = 유산소만 하는 날
+  const CARDIO_TYPES = ['런닝머신', '천국의 계단', '사이클'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
   const partGroup = (part) => (String(part) === '하체' ? '하체' : '상체');
@@ -299,8 +300,10 @@
     const u = requireUser(); const s = await mySession_(tidy(sid, 40)); r = r || {};
     let photo = { url: '' };
     if (r.photo) photo = await uploadPhoto('런닝머신', r.photo);
-    await col('running').add({ sessionId: s.id, date: s.date, who: u.name, uid: u.uid,
-      min: num(r.min), km: num(r.km), incline: num(r.incline), speed: num(r.speed), kcal: num(r.kcal),
+    const type = CARDIO_TYPES.indexOf(tidy(r.type, 20)) >= 0 ? tidy(r.type, 20) : '런닝머신';
+    await col('running').add({ sessionId: s.id, date: s.date, who: u.name, uid: u.uid, type,
+      min: num(r.min), km: num(r.km), incline: num(r.incline), speed: num(r.speed),
+      floors: num(r.floors), level: num(r.level), kcal: num(r.kcal),
       photo: photo.url || '', createdAt: now() });
     return { ok: true };
   }
@@ -350,7 +353,8 @@
       id: s.id, date: s.date, who: whoName_(s), workout: s.workout || '',
       finishThumb: s.finishThumbData || s.finishThumb || '',   // base64 우선(CORS 없음)
       finishPhoto: s.finishPhoto || '', finishVideo: s.finishVideo || '', finishType: s.finishType || (s.finishPhoto ? 'photo' : ''),
-      running: myRun.map((r) => ({ min: r.min, km: r.km, incline: r.incline, speed: r.speed, kcal: r.kcal, photo: r.photo })),
+      running: myRun.map((r) => ({ type: r.type || '런닝머신', min: r.min, km: r.km, incline: r.incline, speed: r.speed,
+        floors: r.floors, level: r.level, kcal: r.kcal, photo: r.photo })),
       weights: Object.values(byEquip),
     };
   }
@@ -502,18 +506,46 @@
   }
 
   /* ---------- 런닝 입력 화면용: 내 최근 런닝 기록 (최근 5번) ---------- */
-  async function lastRunFor(beforeDate) {
+  //  type: 런닝머신 / 천국의 계단 / 사이클 (예전 기록은 type이 없어서 런닝머신으로 봄)
+  async function lastRunFor(beforeDate, type) {
     const u = requireUser();
     const before = tidy(beforeDate, 10) || '9999-12-31';
+    const t = CARDIO_TYPES.indexOf(tidy(type, 20)) >= 0 ? tidy(type, 20) : '런닝머신';
     const day = (r) => String(r.date).slice(0, 10);
     const runs = await col('running').where('uid', '==', u.uid).get().then(docsOf);
-    const list = runs.filter((r) => day(r) < before)
+    const list = runs.filter((r) => (r.type || '런닝머신') === t && day(r) < before)
       .sort((a, b) => (day(a) < day(b) ? 1 : day(a) > day(b) ? -1 : 0))
       .slice(0, 5)
       .map((r) => {
         const v = (x) => (x == null ? '' : x);
-        return { date: day(r), min: v(r.min), km: v(r.km), incline: v(r.incline), speed: v(r.speed), kcal: v(r.kcal) };
+        return { date: day(r), type: t, min: v(r.min), km: v(r.km), incline: v(r.incline), speed: v(r.speed),
+          floors: v(r.floors), level: v(r.level), kcal: v(r.kcal) };
       });
+    return list.length ? { found: true, list } : { found: false };
+  }
+
+  /* ---------- 웨이트 최근 기록 팝업: 이 부위에서 했던 기구·동작별 가장 최근 기록 ---------- */
+  async function recentByPart(part, beforeDate) {
+    const u = requireUser();
+    if (!MYW_CACHE) MYW_CACHE = await col('weights').where('uid', '==', u.uid).get().then(docsOf);
+    const p = tidy(part, 20), before = tidy(beforeDate, 10) || '9999-12-31';
+    if (!p) return { found: false };
+    const day = (w) => String(w.date).slice(0, 10);
+    const latest = {};   // 기구|동작 → 가장 최근 날짜
+    MYW_CACHE.forEach((w) => {
+      if (w.part !== p || day(w) >= before) return;
+      const k = (w.equip || '') + '|' + (w.move || '');
+      if (!latest[k] || latest[k] < day(w)) latest[k] = day(w);
+    });
+    const list = Object.keys(latest).map((k) => {
+      const [equip, move] = [k.slice(0, k.indexOf('|')), k.slice(k.indexOf('|') + 1)];
+      const sets = MYW_CACHE.filter((w) => (w.equip || '') === equip && (w.move || '') === move && w.part === p && day(w) === latest[k])
+        .sort((a, b) => (a.setNo || 0) - (b.setNo || 0))
+        .map((w) => ({ weight: w.weight == null ? '' : w.weight, reps: w.reps == null ? '' : w.reps }));
+      let top = 0; sets.forEach((s) => { const v = Number(s.weight) || 0; if (v > top) top = v; });
+      return { equip, move, date: latest[k], sets, top };
+    }).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.equip.localeCompare(b.equip)))
+      .slice(0, 15);
     return list.length ? { found: true, list } : { found: false };
   }
 
@@ -648,7 +680,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor, lastRunFor, routineFor };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor, lastRunFor, routineFor, recentByPart };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
