@@ -450,3 +450,11 @@ select{-webkit-appearance:none;appearance:none;
 .pgbtn{min-width:34px;height:34px;padding:0 8px;border:1px solid var(--line);border-radius:10px;background:var(--card2);color:var(--sub);font-size:14px;font-weight:700;cursor:pointer}
 .pgbtn.on{background:linear-gradient(180deg,var(--main),var(--main-d));color:var(--ink);border-color:var(--main)}
 .pgbtn:disabled{opacity:.35;cursor:default}
+
+/* 웨이트 입력: 지난번 기록 */
+.lastbox{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--card);border:1px dashed rgba(198,244,50,.3);font-size:13px}
+.lasthead{color:var(--sub);font-weight:600}
+.lasthead b{color:var(--text)}
+.lasthead .hl{color:var(--main);font-weight:900}
+.lastsets{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;color:var(--sub)}
+.lastsets b{color:var(--text)}

@@ -584,8 +584,9 @@ function pickMoveStep(i){ setDraft(PICK_EQUIP, PICK_EQUIP.moves[i]); }
 function pickMoveNone(){ setDraft(PICK_EQUIP, null); }
 function setDraft(equip, move){
   DRAFT = { equipId:equip.id, equipName:equip.name, part:equip.part,
-            moveName: move ? move.name : '', moveLink: move ? (move.link||'') : '', sets:[{weight:'',reps:''}] };
+            moveName: move ? move.name : '', moveLink: move ? (move.link||'') : '', sets:[{weight:'',reps:''}], last:null };
   closePicker(); OPEN='weight'; renderLogView();
+  loadLastWeight();
 }
 function weightFormHtml(){
   if(!DRAFT) return '';
@@ -604,12 +605,35 @@ function weightFormHtml(){
     +   '<button class="howto" onclick="openHowto()">▶ 운동법 보기</button>'
     +   '<button class="linkback" onclick="openWeight()">바꾸기</button>'
     + '</div>'
+    + '<div class="lastbox" id="lastBox">' + lastWeightHtml(DRAFT.last) + '</div>'
     + '<div style="margin-top:8px">' + setsHtml + '</div>'
     + '<button class="softbtn" style="margin-top:4px" onclick="addDraftSet()">＋ 세트 추가</button>'
     + '<div class="row" style="margin-top:10px">'
     +   '<button class="button ghost" style="flex:1" onclick="OPEN=\'\';DRAFT=null;renderLogView()">취소</button>'
     +   '<button class="button accent" style="flex:2" onclick="confirmWeight()">추가</button>'
     + '</div></div>';
+}
+/* 지난번 같은 기구·동작 기록 불러오기 (화면 이동 없이 입력칸 위에 표시) */
+function loadLastWeight(){
+  var d = DRAFT; if(!d) return;
+  call('lastWeightFor', d.equipName, d.moveName, LOG ? LOG.date : todayStr()).then(function(r){
+    if(DRAFT !== d) return;
+    d.last = r || { found:false };
+    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
+  }).catch(function(){
+    if(DRAFT !== d) return;
+    d.last = { found:false, err:true };
+    var box = $('lastBox'); if(box) box.innerHTML = lastWeightHtml(d.last);
+  });
+}
+function lastWeightHtml(l){
+  if(!l) return '<span class="muted">지난번 기록 확인 중…</span>';
+  if(l.err) return '<span class="muted">지난번 기록을 불러오지 못했어요.</span>';
+  if(!l.found) return '<span class="muted">이 동작은 처음이에요. 오늘 기록이 다음 기준이 돼요 💪</span>';
+  return '<div class="lasthead">지난번 <b>' + esc(mdSlash(l.date)) + '</b> · 최고 <span class="hl">' + esc(l.top) + 'kg</span></div>'
+    + '<div class="lastsets">' + l.sets.map(function(s, i){
+        return '<span>' + (i+1) + '세트 <b>' + esc(s.weight) + 'kg × ' + esc(s.reps) + '</b></span>';
+      }).join('') + '</div>';
 }
 function addDraftSet(){ DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }
 function delDraftSet(si){ DRAFT.sets.splice(si,1); if(!DRAFT.sets.length) DRAFT.sets.push({weight:'',reps:''}); renderLogView(); }

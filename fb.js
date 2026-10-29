@@ -4,7 +4,7 @@
  * - 화면(app.js)은 FB.call('기능', ...) 또는 FB.xxx 로 사용
  */
 (function () {
-  const VERSION = 'WF3.5';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
+  const VERSION = 'WF3.6';   // 배포할 때마다 숫자 올리기 (화면 하단·메뉴·로그인에 표시 → 업로드 반영 확인용)
   const WORKOUTS = ['가슴', '등', '어깨', '하체'];
   const BODY_PARTS = ['가슴', '어깨', '등', '팔', '하체'];
   // 상체/하체 분류: 하체만 하체, 나머지는 상체
@@ -17,6 +17,7 @@
   const auth = firebase.auth();
   const db = firebase.firestore();
   let USER = null;   // { uid, email, name }
+  let MYW_CACHE = null;   // 내 웨이트 기록 캐시 (지난번 무게 조회용, 저장·수정 시 비움)
 
   const USERS = window.ALLOWED_USERS || {};   // 이메일 → 기본 이름 (허용 목록)
   const lower = (v) => String(v || '').trim().toLowerCase();
@@ -166,6 +167,7 @@
   async function addMove(equipId, m) {
     requireUser();
     await addMove_(tidy(equipId, 40), m || {});
+    MYW_CACHE = null;
     return { ok: true, gear: await listGear() };
   }
   async function addMove_(equipId, m) {
@@ -201,6 +203,7 @@
           body: JSON.stringify({ op: 'delete', idToken, fileIds }) });
       } catch (e) {}
     }
+    MYW_CACHE = null;
     return { ok: true, gear: await listGear() };
   }
 
@@ -225,6 +228,7 @@
       const wts = await col('weights').where('equip', '==', oldName).get().then((s) => s.docs);
       await commitInChunks_(wts, (b, d2) => b.update(d2.ref, { equip: newName }));
     }
+    MYW_CACHE = null;
     return { ok: true, gear: await listGear() };
   }
 
@@ -248,6 +252,7 @@
       const wts = await col('weights').where('move', '==', oldName).get().then((s) => s.docs);
       await commitInChunks_(wts, (b, d2) => b.update(d2.ref, { move: newName }));
     }
+    MYW_CACHE = null;
     return { ok: true, gear: await listGear() };
   }
 
@@ -311,6 +316,7 @@
         equip, move: tidy(w.moveName, 60), part: tidy(w.part, 20), setNo: i + 1, weight: num(x.weight), reps: num(x.reps), createdAt: now() });
     });
     await batch.commit();
+    MYW_CACHE = null;
     return { ok: true, count: sets.length };
   }
   /* 오운완 저장 (사진 또는 영상)
@@ -444,6 +450,22 @@
         thumb: s.finishThumbData || s.finishThumb, video: s.finishVideo || '', type: s.finishType || 'photo', url: s.finishPhoto || s.finishVideo || '' }));
   }
 
+  /* ---------- 웨이트 입력 화면용: 이 기구·동작의 지난번 기록 ---------- */
+  async function lastWeightFor(equip, move, beforeDate) {
+    const u = requireUser();
+    if (!MYW_CACHE) MYW_CACHE = await col('weights').where('uid', '==', u.uid).get().then(docsOf);
+    const e = tidy(equip, 60), m = tidy(move, 60), before = tidy(beforeDate, 10) || '9999-12-31';
+    const day = (w) => String(w.date).slice(0, 10);
+    const same = MYW_CACHE.filter((w) => w.equip === e && (w.move || '') === m && day(w) < before);
+    if (!same.length) return { found: false };
+    const last = same.map(day).sort().pop();
+    const sets = same.filter((w) => day(w) === last)
+      .sort((a, b) => (a.setNo || 0) - (b.setNo || 0))
+      .map((w) => ({ weight: w.weight, reps: w.reps }));
+    let top = 0; sets.forEach((s) => { const v = Number(s.weight) || 0; if (v > top) top = v; });
+    return { found: true, date: last, sets, top };
+  }
+
   /* ---------- 기록하기 시작 화면용: 내 마지막 운동 힌트 ---------- */
   async function workoutHint() {
     const u = requireUser();
@@ -512,6 +534,7 @@
           body: JSON.stringify({ op: 'delete', idToken, fileIds }) });
       } catch (e) { /* 사진 삭제 실패해도 기록은 지워짐 */ }
     }
+    MYW_CACHE = null;
     return { ok: true, deleted: mine.length };
   }
 
@@ -574,7 +597,7 @@
   }
 
   /* ---------- 화면용 창구 ---------- */
-  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe };
+  const API = { listGear, addEquipment, addMove, deleteEquipment, updateEquipment, updateMove, startSession, addRunning, addWeight, addFinish, sessionSummary, listSessions, trendData, latestFinish, finishHistory, dayFinish, equipLog, lastFeedback, workoutHint, listMySessions, deleteSessions, renameMe, lastWeightFor };
   async function call(fn) {
     const f = API[fn]; if (!f) fail('없는 기능: ' + fn);
     return f.apply(null, Array.prototype.slice.call(arguments, 1));
